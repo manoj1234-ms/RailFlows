@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, test, develop]
   pull_request:
-    branches: [main]
+    branches: [main, test]
 
 env:
   NODE_VERSION: "24"
