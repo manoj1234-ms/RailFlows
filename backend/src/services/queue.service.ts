@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { Queue, Worker, Job } from 'bullmq';
 import { getDb } from '../config/db';
-import { getRedis, getRedisVersion, isBullMQCompatible } from '../config/redis';
+import { getRedis, getRedisVersion, isBullMQCompatible, isRedisReady } from '../config/redis';
 import logger from '../utils/logger';
 
 export interface QueueTokenInfo {
@@ -217,20 +217,51 @@ export class QueueService {
 
     // At front of queue — grant 5 min booking window
     if (currentPosition === 0 && !tokenRow.booking_window_expires_at) {
-      const expires = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-      await db.run(
-        'UPDATE queue_tokens SET queue_position = ?, estimated_wait_seconds = 0, booking_window_expires_at = ? WHERE token = ?',
-        [originalPosition, expires, tokenRow.token]
-      );
-      return {
-        token: tokenRow.token,
-        userId: tokenRow.user_id,
-        originalPosition,
-        currentPosition: 0,
-        estimatedWaitSeconds: 0,
-        bookingWindowExpiresAt: expires,
-        createdAt: tokenRow.created_at,
-      };
+      let allowGrant = true;
+      if (isRedisReady()) {
+        try {
+          const redis = getRedis();
+          const secondKey = `queue:grants:${Math.floor(Date.now() / 1000)}`;
+          const currentGrants = await redis.incr(secondKey);
+          if (currentGrants === 1) {
+            await redis.expire(secondKey, 5);
+          }
+          // Max 10 window grants per second to prevent database surges
+          if (currentGrants > 10) {
+            allowGrant = false;
+          }
+        } catch (err) {
+          // Fallback to normal behavior on Redis error
+        }
+      }
+
+      if (allowGrant) {
+        const expires = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+        await db.run(
+          'UPDATE queue_tokens SET queue_position = ?, estimated_wait_seconds = 0, booking_window_expires_at = ? WHERE token = ?',
+          [originalPosition, expires, tokenRow.token]
+        );
+        return {
+          token: tokenRow.token,
+          userId: tokenRow.user_id,
+          originalPosition,
+          currentPosition: 0,
+          estimatedWaitSeconds: 0,
+          bookingWindowExpiresAt: expires,
+          createdAt: tokenRow.created_at,
+        };
+      } else {
+        // Stagger: Force user to wait. Treat them as position 1 with 1s wait estimate
+        return {
+          token: tokenRow.token,
+          userId: tokenRow.user_id,
+          originalPosition,
+          currentPosition: 1,
+          estimatedWaitSeconds: 1,
+          bookingWindowExpiresAt: null,
+          createdAt: tokenRow.created_at,
+        };
+      }
     }
 
     // Still waiting — estimate wait time

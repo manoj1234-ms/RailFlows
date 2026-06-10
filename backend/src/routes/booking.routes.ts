@@ -78,10 +78,37 @@ router.post('/lock', authenticate, bookingRateLimiter, validate(lockSeatsSchema)
 
     // 2. Lock each seat
     const lockedSeats: number[] = [];
+    const db = await getDb();
+    let isSwapped = false;
+
     for (const seatNum of seatNumbers) {
-      const success = await SeatLockService.acquireSeatLock(trainNumber, coachLabel, seatNum, userId);
+      let success = await SeatLockService.acquireSeatLock(trainNumber, coachLabel, seatNum, userId);
+      let allocatedSeat = seatNum;
+
+      if (!success) {
+        // Find next nearest available seat in the same coach
+        const alternatives = await db.all(
+          `SELECT seat_number FROM seats 
+           WHERE train_number = ? AND coach_label = ? AND status = 'AVAILABLE'
+           ORDER BY ABS(seat_number - ?) ASC`,
+          [trainNumber, coachLabel, seatNum]
+        );
+        
+        for (const alt of alternatives) {
+          if (!seatNumbers.includes(alt.seat_number) && !lockedSeats.includes(alt.seat_number)) {
+            const altSuccess = await SeatLockService.acquireSeatLock(trainNumber, coachLabel, alt.seat_number, userId);
+            if (altSuccess) {
+              allocatedSeat = alt.seat_number;
+              success = true;
+              isSwapped = true;
+              break;
+            }
+          }
+        }
+      }
+
       if (success) {
-        lockedSeats.push(seatNum);
+        lockedSeats.push(allocatedSeat);
       } else {
         // Compensating step: Release any seats locked so far in this transaction
         for (const rolledBackSeat of lockedSeats) {
@@ -89,22 +116,23 @@ router.post('/lock', authenticate, bookingRateLimiter, validate(lockSeatsSchema)
         }
         res.status(409).json({
           status: 'error',
-          message: `Seat ${coachLabel}-${seatNum} is currently locked or booked. Transaction aborted.`,
+          message: `Seat ${coachLabel}-${seatNum} is currently locked or booked, and no alternatives are available. Transaction aborted.`,
         });
         return;
       }
     }
 
     // Log lock event
-    const db = await getDb();
     await db.run(
       "INSERT INTO audit_logs (actor, action, ip, payload) VALUES (?, 'SEATS_LOCKED', ?, ?)",
-      [req.user.email, req.ip || 'unknown', JSON.stringify({ trainNumber, coachLabel, seatNumbers })]
+      [req.user.email, req.ip || 'unknown', JSON.stringify({ trainNumber, coachLabel, originalSeats: seatNumbers, lockedSeats })]
     );
 
     res.status(200).json({
       status: 'success',
-      message: 'Seats successfully locked for 180 seconds.',
+      message: isSwapped 
+        ? 'Some selected seats were occupied. Closest alternatives successfully locked.'
+        : 'Seats successfully locked for 180 seconds.',
       data: {
         lockExpiresInSeconds: 180,
         lockedSeats,
