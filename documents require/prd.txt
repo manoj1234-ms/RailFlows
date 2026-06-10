@@ -1,0 +1,407 @@
+
+RAILFLOW
+High-Scale Intelligent Ticket Booking Platform
+Product Requirements & System Architecture Document
+
+
+Document Version:  2.0 — Enhanced Security Edition
+Status:  Final Draft
+Date:  June 2026
+Classification:  Confidential — Internal Use Only
+
+1. Executive Summary
+RailFlow is a cloud-native, microservices-based ticket booking platform engineered for extreme concurrency — targeting Tatkal bookings, festival rushes, concert sales, and airline flash events. The platform resolves the most critical failure points in legacy reservation systems.
+
+Core Problems Solved
+Website crashes during peak demand
+Payment failures and inconsistencies
+Seat overselling and double booking
+Poor user experience under load
+Scalability and traffic bottlenecks
+
+Technology Stack
+Distributed Microservices (8 independent services)
+Event-Driven Architecture via Apache Kafka
+Virtual Queue Management for traffic control
+Real-Time Seat Locking via Redis distributed locks
+Cloud Auto Scaling on Kubernetes (HPA + VPA)
+AI-Based Demand Prediction (Phase 4)
+
+2. Security Architecture — Enhanced
+  This section documents security gaps identified in v1.0 and the hardened controls applied in v2.0. Each issue is tagged as FIXED or ADDED.
+2.1 Authentication & Authorization
+[FIXED]  Weak JWT Configuration (Original)
+Original doc specified JWT without token expiry, key rotation, or algorithm pinning — trivially exploitable.
+FIX: Access tokens expire in 15 minutes. Refresh tokens expire in 7 days with rotation.
+FIX: Algorithm pinned to RS256 (asymmetric). HS256 with shared secrets explicitly rejected.
+FIX: Refresh token stored in HttpOnly, Secure, SameSite=Strict cookie — not localStorage.
+
+[FIXED]  Missing Token Revocation
+Original design had no way to invalidate tokens on logout or suspicious activity.
+FIX: JWT revocation list maintained in Redis with TTL matching token expiry.
+FIX: All active sessions visible in user profile with force-logout capability.
+
+[ADDED]  RBAC — Role-Based Access Control (Hardened)
+Roles: Guest, Passenger, Agent, Operator, Admin, Super Admin.
+Principle of Least Privilege enforced — each service only has access to its own data.
+Admin actions require MFA re-authentication every session.
+Super Admin actions require dual-approval (4-eyes principle).
+2.2 API Security
+[FIXED]  No Input Validation (Original)
+Original PRD had no mention of input sanitization — opens SQL injection and XSS vectors.
+FIX: All inputs validated server-side using schema validation (Joi / Zod).
+FIX: Parameterized queries enforced across all database interactions — no raw SQL.
+FIX: HTML output escaped to prevent stored XSS in user-generated fields.
+
+[FIXED]  Insufficient Rate Limiting Specification
+Original doc mentioned rate limiting but gave no thresholds, which means it defaults to 'none'.
+FIX: Login: 5 attempts / 15 min per IP, then 30-minute lockout.
+FIX: OTP: 3 attempts / 10 min, then account-level block with alert.
+FIX: Booking API: 10 requests / min per authenticated user.
+FIX: Search API: 30 requests / min unauthenticated, 60 authenticated.
+
+[ADDED]  OWASP API Security Top-10 Compliance
+API1 — Broken Object Level Auth: UUID-based resource IDs, server-side ownership checks on every request.
+API2 — Broken Auth: MFA, short-lived tokens, OTP brute-force protection.
+API3 — Broken Object Property Level Auth: Response DTOs explicitly list allowed fields; no wildcard serialization.
+API4 — Unrestricted Resource Consumption: Request size limits (1MB default), pagination enforced.
+API5 — Broken Function Level Auth: RBAC middleware on every route — no security through obscurity.
+API8 — Security Misconfiguration: Security headers enforced (HSTS, CSP, X-Frame-Options, CORP).
+2.3 Data Security
+[FIXED]  Encryption Gap — Data In Use
+Original spec covered at-rest (AES-256) and in-transit (TLS 1.3) but missed data in use.
+FIX: Sensitive fields (Aadhaar, card tokens) encrypted at application layer using field-level encryption before storing in DB.
+FIX: PII fields masked in logs — card numbers, phone numbers, email addresses truncated in all log outputs.
+FIX: Database credentials and secrets stored in HashiCorp Vault — never in environment variables or code.
+
+[ADDED]  PCI DSS Baseline for Payment Data
+RailFlow never stores raw card numbers — tokenization via payment gateway (Razorpay/Stripe).
+CVV never stored at any point — not even temporarily in logs.
+Payment service runs in its own network segment with strict egress rules.
+All payment logs audited and retained for 12 months per PCI DSS Requirement 10.
+2.4 Infrastructure Security
+[FIXED]  No Network Segmentation (Original)
+Original architecture showed all services in a flat network — any compromised service could reach all others.
+FIX: Kubernetes Network Policies enforce service-to-service allow-lists.
+FIX: Payment Service isolated in a dedicated namespace with no inbound from public-facing services.
+FIX: Database pods accessible only from their corresponding application service pods.
+
+[ADDED]  Zero-Trust Security Model (Moved from Future to v2.0)
+Service-to-service communication authenticated with mTLS using SPIFFE/SPIRE.
+No implicit trust between microservices — every call requires a valid service identity.
+Short-lived X.509 certificates rotated automatically every 24 hours.
+
+[ADDED]  Secrets Management
+HashiCorp Vault for dynamic secrets (DB passwords, API keys, certs).
+Vault Agent Injector for Kubernetes — secrets injected as env variables at pod startup.
+Secret rotation automated — no manual password changes required.
+Emergency secret revocation capability — all credentials rotated in < 5 minutes.
+2.5 DDoS & Abuse Protection
+[ADDED]  Multi-Layer DDoS Defense
+L3/L4: Cloudflare Magic Transit or AWS Shield Advanced for volumetric attacks.
+L7: WAF rules blocking known attack patterns (SQLi, XSS, path traversal, log4shell).
+Bot protection: Cloudflare Bot Management or reCAPTCHA v3 on critical endpoints.
+Tatkal-specific: Ticket booking endpoints require proof-of-work during surge windows to deter bots.
+Geo-blocking: Optional IP allow-listing for admin endpoints.
+
+3. Architecture — Gaps & Improvements
+3.1 Virtual Queue — Missing Fairness Guarantee
+[FIXED]  No Anti-Manipulation in Queue (Original)
+Original queue design had no protection against users refreshing to get a better queue position.
+FIX: Queue token is device-fingerprint + IP + user-ID bound — refreshing returns same token.
+FIX: Queue position is final on token generation — no re-queuing without full expiry.
+FIX: Queue tampering attempts trigger a 30-minute ban on that user account.
+
+3.2 Seat Locking — Race Condition Fix
+[FIXED]  Non-Atomic Lock (Original)
+Original used Redis SET but did not specify NX + EX atomically — opens time-of-check to time-of-use race.
+FIX: Seat lock implemented with Redis SET key value NX EX 180 — single atomic operation.
+FIX: Lock release uses Lua script to ensure only the lock owner can release — prevents accidental release by expired user.
+FIX: Distributed lock fallback: if Redis primary fails, lock service falls back to Postgres advisory locks.
+
+3.3 Payment Consistency
+[FIXED]  Payment-Booking Inconsistency (Original)
+Original mentioned the problem but the architecture did not show a resolution mechanism.
+FIX: Saga Pattern implemented for booking-payment workflow (choreography-based).
+FIX: Idempotency keys on all payment requests — duplicate submissions return the original response.
+FIX: Compensating transaction: if booking confirmation fails after payment, automated refund saga triggers within 60 seconds.
+FIX: Dead Letter Queue in Kafka for failed events — manual review + retry dashboard in Admin panel.
+
+3.4 Database — Missing Replication Strategy
+[ADDED]  PostgreSQL High Availability
+Primary + 2 read replicas with streaming replication (Patroni for failover).
+Read queries routed to replicas via PgBouncer connection pooling.
+Write queries (bookings, payments) go to primary only.
+Automated failover in < 30 seconds with no data loss (RPO = 0 using synchronous replication for payments).
+Point-in-time recovery (PITR) enabled — 30-day backup retention on S3.
+
+3.5 Observability — Missing Distributed Tracing
+[ADDED]  OpenTelemetry + Distributed Tracing
+OpenTelemetry SDK integrated in all services for traces, metrics, and logs.
+Jaeger or Tempo for distributed trace visualization — trace every booking end-to-end.
+Correlation IDs propagated through Kafka messages — full trace across async events.
+SLO dashboards in Grafana with error budget burn rate alerts.
+On-call runbooks linked directly from Grafana alert panels.
+
+4. Functional Requirements
+4.1 User Module
+Registration & Authentication
+Email registration with verification link (expires 24h)
+Phone registration with OTP (6-digit, 5-minute expiry)
+Social login: Google, Apple ID
+MFA: TOTP (Google Authenticator compatible) or SMS
+Profile Management
+Manage saved passengers with Aadhaar-masked display
+View travel history with e-ticket download (PDF)
+Active sessions management with remote logout
+Notification preferences (email, SMS, push)
+4.2 Search & Discovery
+Route search with fuzzy matching (handles typos)
+Schedule search by date range (max 90 days ahead)
+Real-time seat availability with class filters
+Fare calendar — cheapest date suggestions in ±7-day window
+4.3 Booking Workflow
+Seat selection with visual coach map
+Seat lock on selection (180 seconds) — countdown timer shown
+Passenger details autofill from saved profiles
+Booking confirmation with PNR in < 3 seconds after payment
+E-ticket delivery: email (PDF) + SMS (PNR + link)
+4.4 Cancellation & Refund
+Self-service cancellation up to 2 hours before departure
+Refund to original payment method within 5–7 business days
+Partial cancellation for multi-passenger bookings
+Cancellation policy displayed before confirmation
+4.5 Admin Dashboard
+Real-time booking metrics: sales, revenue, occupancy
+Queue health monitoring: length, wait times, throughput
+Service health grid: uptime, latency per microservice
+Manual override: release locked seats, trigger refunds
+Audit log: all admin actions with actor, timestamp, IP
+
+5. Non-Functional Requirements
+5.1 Scalability
+Horizontal scaling of all stateless microservices via Kubernetes HPA
+Target: 5M+ concurrent users at peak with < 2s response
+Kafka consumer groups scale independently per topic load
+Redis Cluster with consistent hashing — no resharding downtime
+5.2 Availability & Reliability
+99.99% uptime SLA (< 52 minutes downtime per year)
+Multi-AZ deployment — no single region as SPOF
+Circuit breaker pattern (Resilience4j) on all inter-service calls
+Graceful degradation: search returns cached results if live DB is slow
+Zero double-booking guaranteed via atomic distributed locks
+5.3 Performance
+API p50 response: < 500ms | p99: < 2s | p999: < 5s
+Seat availability check: < 100ms (Redis cache hit)
+Booking confirmation: < 3s end-to-end
+Payment processing: < 5s (gateway dependent)
+5.4 Security
+All endpoints HTTPS only — HTTP requests redirected with 301
+HSTS enforced with 1-year max-age and includeSubDomains
+Content Security Policy preventing inline script injection
+CORS restricted to approved origins only
+Dependency scanning in CI/CD (Snyk / Dependabot) — no critical CVEs
+Penetration testing before each major release
+SOC 2 Type II compliance roadmap for enterprise customers
+
+6. MVP Scope
+6.1 Included in MVP
+User registration, login, and profile management
+Route search and real-time availability
+Seat locking and booking confirmation
+UPI, debit/credit card payments
+Email and SMS notifications
+Basic admin analytics dashboard
+Core security controls: JWT, RBAC, rate limiting, input validation
+6.2 Deferred to Post-MVP
+AI Recommendation Engine (Phase 4)
+Dynamic Pricing Engine
+Voice / Conversational Booking
+Advanced Fraud Detection (ML-based)
+Multi-language support
+Loyalty and subscription programs
+
+7. Risk Register
+
+Risk
+Impact
+Likelihood
+Mitigation
+Owner
+Traffic Spike
+Critical
+High
+Virtual Queue + Auto Scale
+DevOps
+Payment Failure
+High
+Medium
+Idempotency + Retry Logic
+Payments Team
+Service Crash
+High
+Medium
+Circuit Breaker + K8s HPA
+SRE
+Database Failure
+Critical
+Low
+Multi-region Replication
+DB Team
+Cyber Attack / DDoS
+Critical
+Medium
+WAF + Rate Limiting + MFA
+Security
+Seat Double Booking
+High
+Low
+Redis Distributed Lock
+Backend
+Data Breach
+Critical
+Low
+AES-256 + TLS 1.3 + RBAC
+Security
+JWT Token Theft
+High
+Medium
+Short TTL + Refresh Rotation
+Auth Team
+API Abuse / Scraping
+Medium
+High
+Rate Limit + Bot Detection
+Platform
+
+8. Development Roadmap
+
+Phase
+Duration
+Deliverables
+Security Checklist
+Phase 1
+4 Weeks
+Auth Service, User Service, Search Service
+JWT impl, OTP rate limiting, input sanitization
+Phase 2
+6 Weeks
+Availability, Booking & Payment Services
+Distributed seat lock, idempotency keys, PCI DSS baseline
+Phase 3
+4 Weeks
+Kafka, Redis, Kubernetes, CI/CD Pipeline
+Secrets in Vault, K8s RBAC, network policies, WAF
+Phase 4
+6 Weeks
+Demand Prediction, Auto Scaling, AI Features
+Model input validation, rate-limited ML endpoints, audit logs
+
+Phase Details
+Phase 1 — Foundation (4 Weeks)
+Set up Kubernetes cluster, namespaces, and network policies
+Auth Service: registration, login, JWT (RS256), OTP, MFA
+User Service: profile, saved passengers
+Search Service: route/schedule search with Elasticsearch
+CI/CD pipeline: GitHub Actions → Docker → K8s
+Secrets management: HashiCorp Vault integration
+Phase 2 — Booking Core (6 Weeks)
+Availability Service: Redis seat inventory, distributed lock
+Virtual Queue Service: token generation, window assignment
+Booking Service: full reservation workflow + Saga pattern
+Payment Service: Razorpay/Stripe integration, idempotency
+Notification Service: email (SendGrid), SMS (Twilio)
+Phase 3 — Infrastructure Hardening (4 Weeks)
+Kafka cluster: topics, consumer groups, DLQ
+PostgreSQL HA: Patroni, read replicas, PITR backups
+Redis Cluster: consistent hashing, eviction policies
+Observability: OpenTelemetry, Jaeger, Grafana dashboards
+WAF and DDoS protection: Cloudflare / AWS Shield
+Security audit: OWASP scan, dependency review, pen test
+Phase 4 — AI Features (6 Weeks)
+Demand prediction model: historical booking data + seasonality
+Smart auto-scaling: predictive HPA triggers from ML model
+Recommendation engine: alternate routes, travel combos
+Fraud detection: anomaly scoring on booking patterns
+
+9. Success Metrics (KPIs)
+
+KPI
+Target
+Measurement
+System Uptime
+99.99%
+Prometheus / PagerDuty
+API Response Time
+< 2 seconds
+APM / Grafana
+Booking Success Rate
+> 95%
+Application Metrics
+Payment Failure Rate
+< 1%
+Payment Gateway Logs
+Seat Lock Accuracy
+100%
+Redis Health Checks
+Concurrent Users
+5M+
+Load Testing / k6
+MTTR (Mean Time to Rec)
+< 30 minutes
+Incident Tracker
+Security Incident Rate
+Zero P0 breaches
+SIEM / SOC
+
+10. AI Integration Roadmap
+Phase 1 — Demand Prediction
+Predict high-demand routes 72 hours in advance using LSTM on booking history
+Trigger pre-warming of K8s pods before expected surges
+Confidence score threshold: only auto-scale on ≥ 80% confidence
+Phase 2 — Smart Auto Scaling
+Predictive HPA: scale up before load hits (not reactive)
+Cost optimizer: scale down incrementally after peak to avoid thrashing
+Phase 3 — Recommendation Engine
+Collaborative filtering: suggest routes based on similar traveller profiles
+Alternate route suggestions when primary is full
+Fare calendar: predict cheapest booking window
+Phase 4 — Fraud Detection
+Real-time anomaly scoring on booking velocity, device fingerprint, IP reputation
+Bot detection: behaviour biometrics (typing speed, mouse patterns) on booking form
+Suspicious pattern: block accounts with > 3 failed payment attempts in 10 minutes
+Human review queue for flagged bookings above risk threshold
+
+11. Future Enhancements
+Technical Roadmap
+Multi-region active-active deployment with global load balancing
+Event sourcing + CQRS architecture for full audit trail
+Serverless booking workers for burst handling (AWS Lambda / Cloud Run)
+Blockchain-based immutable ticket audit trail
+Edge caching with Cloudflare Workers for search responses
+Autonomous incident response: AI-driven runbook execution
+Product Features
+Voice booking via Alexa / Google Assistant integration
+Multilingual support (Hindi, Tamil, Bengali, and 10 more languages)
+Smart waitlist: ML-predicted cancellation probability shown to waitlisted users
+Dynamic seat recommendations based on travel preferences
+Travel insurance integration with instant policy issuance
+Hotel, cab, and tourism package bundles
+Cross-platform ticketing: bus + train + flight in single booking
+Subscription plans: monthly pass for frequent routes
+Loyalty program with points redeemable across travel modes
+
+12. Conclusion
+RailFlow v2.0 represents a production-ready architecture that goes beyond the original PRD by embedding security and reliability as first-class design constraints rather than afterthoughts.
+
+Key upgrades in this version:
+JWT hardened with RS256, short TTL, refresh rotation, and Redis-based revocation
+OWASP API Top-10 compliance built into the API Gateway layer
+PCI DSS baseline for payment data — no raw card storage anywhere in the system
+Zero-Trust mTLS between microservices using SPIFFE/SPIRE
+Atomic Redis seat locking with Lua-script-protected release
+Saga pattern with compensating transactions for payment consistency
+PostgreSQL HA with Patroni, synchronous replication for critical writes
+Full observability via OpenTelemetry, distributed tracing, and SLO dashboards
+
+The MVP delivers the essential booking workflow within 4 + 6 weeks. Phases 3 and 4 harden infrastructure and add intelligence. Future phases expand RailFlow into an end-to-end travel super-app while maintaining enterprise-grade security and five-nines reliability.

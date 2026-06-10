@@ -1,0 +1,190 @@
+### RailFlow API Verification REST Client File
+# Use this file with VS Code REST Client extension, or translate to curl commands.
+
+@baseUrl = http://localhost:5000/api
+@deviceFingerprint = user-chrome-windows-fingerprint-999
+
+### 1. Root Check
+GET http://localhost:5000/
+Accept: application/json
+
+### 2. User Registration (Passenger)
+# @name registerPassenger
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "testpassenger@railflow.com",
+  "password": "password123",
+  "role": "Passenger"
+}
+
+### 3. User Login (Passenger - Standard)
+# @name loginPassenger
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "passenger@railflow.com",
+  "password": "password123"
+}
+
+### Save Passenger Token (Copy from login response into this variable)
+@passengerToken = {{loginPassenger.response.body.accessToken}}
+
+### 4. Fetch Passenger Profile (Requires Auth Header)
+GET {{baseUrl}}/users/profile
+Authorization: Bearer {{passengerToken}}
+
+### 5. Fetch Saved Passengers List (Masked Aadhaar Check)
+GET {{baseUrl}}/users/passengers
+Authorization: Bearer {{passengerToken}}
+
+### 6. Save a New Passenger (Field-Level Encryption Check)
+POST {{baseUrl}}/users/passengers
+Authorization: Bearer {{passengerToken}}
+Content-Type: application/json
+
+{
+  "name": "Bob Smith",
+  "aadhaar": "987654321098"
+}
+
+### 7. Search Trains (Fuzzy Match Check - "Mumbay" instead of "Mumbai")
+GET {{baseUrl}}/trains/search?from=Mumbay&to=Delhi&date=2026-06-15
+Authorization: Bearer {{passengerToken}}
+
+### 8. Get Train Details
+GET {{baseUrl}}/trains/12951
+
+### 9. Get Live Seat Layout (Coach B1 - 3A)
+GET {{baseUrl}}/trains/12951/coach?class=3A
+
+### 10. Attempt to Lock Seat WITHOUT Virtual Queue (Fails with 403 Redirect Queue)
+POST {{baseUrl}}/bookings/lock
+Authorization: Bearer {{passengerToken}}
+Content-Type: application/json
+
+{
+  "trainNumber": "12951",
+  "coachLabel": "B1",
+  "seatNumbers": [5, 6]
+}
+
+### 11. Join the Virtual Queue
+# @name joinQueue
+POST {{baseUrl}}/queue/join
+Authorization: Bearer {{passengerToken}}
+Content-Type: application/json
+
+{
+  "deviceFingerprint": "{{deviceFingerprint}}"
+}
+
+### Save Queue Token (Copy from response data.token)
+@queueToken = {{joinQueue.response.body.data.token}}
+
+### 12. Poll Queue Status (Advance Queue simulation)
+# Wait a few seconds and run this to watch position degrade.
+# Tampering is protected: altering token relative to IP/fingerprint results in 30-min ban.
+GET {{baseUrl}}/queue/status?token={{queueToken}}&deviceFingerprint={{deviceFingerprint}}
+Authorization: Bearer {{passengerToken}}
+
+### 13. Lock Seat WITH Virtual Queue (Run after queue position reaches 0)
+POST {{baseUrl}}/bookings/lock
+Authorization: Bearer {{passengerToken}}
+Content-Type: application/json
+
+{
+  "trainNumber": "12951",
+  "coachLabel": "B1",
+  "seatNumbers": [5, 6]
+}
+
+### 14. Confirm Booking (Runs Saga Orchestrator & Payment Simulation)
+# Set unique Idempotency key per request to prevent double submit.
+POST {{baseUrl}}/bookings/confirm
+Authorization: Bearer {{passengerToken}}
+Content-Type: application/json
+
+{
+  "trainNumber": "12951",
+  "coachLabel": "B1",
+  "seatNumbers": [5, 6],
+  "passengers": [
+    {
+      "name": "Jane Doe",
+      "age": 28,
+      "gender": "F",
+      "aadhaar": "111122223333"
+    },
+    {
+      "name": "Bob Smith",
+      "age": 42,
+      "gender": "M",
+      "aadhaar": "987654321098"
+    }
+  ],
+  "paymentMethod": "UPI",
+  "idempotencyKey": "unique-payment-idempotency-key-001"
+}
+
+### 15. Retrieve E-Ticket (PNR Check)
+# Replace PNR with actual PNR from booking confirm response
+@pnr = 1234567890
+GET {{baseUrl}}/bookings/ticket/{{pnr}}
+Authorization: Bearer {{passengerToken}}
+
+### 16. Check Booking History
+GET {{baseUrl}}/bookings/history
+Authorization: Bearer {{passengerToken}}
+
+### 17. User Session Terminate (Force Logout check)
+POST {{baseUrl}}/users/sessions/terminate
+Authorization: Bearer {{passengerToken}}
+
+### 18. Admin Login (Requires MFA Bypass)
+# @name loginAdmin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@railflow.com",
+  "password": "password123"
+}
+
+### Save Admin MFA Token (MFA authentication token returned)
+@adminMfaToken = {{loginAdmin.response.body.mfaToken}}
+
+### 19. Verify MFA Code for Admin
+# @name verifyAdminMfa
+POST {{baseUrl}}/auth/mfa/verify
+Content-Type: application/json
+
+{
+  "email": "admin@railflow.com",
+  "code": "123456"
+}
+
+### Save Admin Access Token
+@adminToken = {{verifyAdminMfa.response.body.accessToken}}
+
+### 20. Access Admin Analytics Dashboard (Requires adminToken + MFA verification check)
+GET {{baseUrl}}/admin/analytics
+Authorization: Bearer {{adminToken}}
+
+### 21. Access Admin Queue Monitoring Dashboard
+GET {{baseUrl}}/admin/queue-metrics
+Authorization: Bearer {{adminToken}}
+
+### 22. Access Service Health Grid (OpenTelemetry telemetry simulation)
+GET {{baseUrl}}/admin/service-health
+Authorization: Bearer {{adminToken}}
+
+### 23. Access Security Audit Logs
+GET {{baseUrl}}/admin/audit-logs
+Authorization: Bearer {{adminToken}}
+
+### 24. Token Blacklist / Logout
+POST {{baseUrl}}/auth/logout
+Authorization: Bearer {{passengerToken}}

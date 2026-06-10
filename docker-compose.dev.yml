@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    environment:
+      NODE_ENV: development
+      CLUSTER_ENABLED: "false"
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: railflow
+      PGPASSWORD: railflow_dev
+      PGDATABASE: railflow
+      REDIS_URL: redis://redis:6379
+      ALLOWED_ORIGINS: "*"
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      JWT_SECRET: dev_secret_key
+      JWT_REFRESH_SECRET: dev_refresh_secret
+    ports:
+      - "5000:5000"
+      - "9229:9229"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/tsconfig.json:/app/tsconfig.json
+    command: ["npx", "ts-node", "--inspect=0.0.0.0:9229", "src/index.ts"]
+    profiles:
+      - dev
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  mailhog:
+    profiles:
+      - dev

@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+*.log
+.env
+.env.local
+test-api.ps1
+requests.http
+server.log
+server-err.log
+coverage
