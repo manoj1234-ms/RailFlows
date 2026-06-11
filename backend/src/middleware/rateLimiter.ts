@@ -23,7 +23,7 @@ const createRedisStore = (prefix: string) => {
 const isLoadTest = process.env.LOAD_TEST === 'true';
 const getMax = (limit: number) => (isLoadTest ? 10000 : limit);
 
-const validate = { xForwardedForHeader: false };
+const validate = { xForwardedForHeader: false, ip: false };
 
 export const loginRateLimiter = rateLimit({
   store: createRedisStore('login'),
