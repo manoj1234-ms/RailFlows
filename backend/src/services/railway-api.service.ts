@@ -256,4 +256,70 @@ export class RailwayApiService {
     await cache.set(cacheKey, localStatus, 60);
     return localStatus;
   }
+
+  /**
+   * Fetch real-world PNR status from the PNR Status Indian Railway API.
+   * Caches response to optimize resource usage.
+   */
+  static async getPnrStatus(pnr: string): Promise<any | null> {
+    const cleanPnr = pnr.trim();
+    if (!/^\d{10}$/.test(cleanPnr)) {
+      return null;
+    }
+
+    const cacheKey = `ext_pnr:${cleanPnr}`;
+    const cached = await cache.get<any>(cacheKey);
+    if (cached) {
+      logger.debug(`[Railway API] Cache hit for PNR status: ${cleanPnr}`);
+      return cached;
+    }
+
+    const apiKey = process.env.RAPIDAPI_KEY;
+    if (!apiKey) {
+      logger.debug('[Railway API] RAPIDAPI_KEY is not set. Using local database fallback for PNR lookup.');
+      return null;
+    }
+
+    const host = 'pnr-status-indian-railway-pnr-check1.p.rapidapi.com';
+    const url = `https://${host}/pnrno/${cleanPnr}`;
+
+    const hasToken = await this.limiter.acquire();
+    if (!hasToken) {
+      logger.warn('[Railway API] PNR status query throttled by internal rate limiter.');
+      return null;
+    }
+
+    try {
+      logger.info(`[Railway API] Fetching external PNR status from: ${url}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'X-RapidAPI-Key': apiKey,
+          'X-RapidAPI-Host': host,
+          'Accept': 'application/json',
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        logger.warn(`[Railway API] PNR request failed with status: ${response.status}`);
+        return null;
+      }
+
+      const body = await response.json();
+      if (body) {
+        await cache.set(cacheKey, body, 300); // Cache for 5 minutes (300 seconds)
+        return body;
+      }
+      return null;
+    } catch (err: any) {
+      logger.error(`[Railway API] Error during PNR status request: ${err.message}`);
+      return null;
+    }
+  }
 }

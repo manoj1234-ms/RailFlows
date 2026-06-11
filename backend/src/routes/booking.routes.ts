@@ -16,6 +16,8 @@ import {
   emitBookingCancelled,
   emitSeatReleased,
 } from '../services/kafka.service';
+import { RailwayApiService } from '../services/railway-api.service';
+
 
 const router = Router();
 
@@ -330,6 +332,38 @@ router.get('/pnr/:pnr', validate(pnrParamsSchema), async (req: Request, res: Res
     );
 
     if (!booking) {
+      if (/^\d{10}$/.test(pnr)) {
+        const extPnr = await RailwayApiService.getPnrStatus(pnr);
+        if (extPnr) {
+          // Map external PNR data format to our standard response format
+          const extPassengers = (extPnr.passengers || extPnr.passengerList || []).map((p: any) => ({
+            name: p.name || 'Passenger',
+            bookingStatus: p.bookingStatus || p.currentStatus || 'CONFIRMED',
+            currentStatus: p.currentStatus || 'CONFIRMED',
+            maskedAadhaar: 'XXXX-XXXX-XXXX'
+          }));
+
+          res.status(200).json({
+            status: 'success',
+            data: {
+              pnr: extPnr.pnr || pnr,
+              trainNumber: extPnr.trainNumber || extPnr.trainNo || '',
+              trainName: extPnr.trainName || '',
+              fromStation: extPnr.fromStation || extPnr.boardingPoint || '',
+              toStation: extPnr.toStation || extPnr.reservationUpto || '',
+              departureTime: extPnr.departureTime || '',
+              arrivalTime: extPnr.arrivalTime || '',
+              status: extPnr.bookingStatus || 'CONFIRMED',
+              price: extPnr.price || 0,
+              createdAt: new Date().toISOString(),
+              passengers: extPassengers,
+              qrCodePayload: `RAILFLOW-PNR-EXT:${extPnr.pnr || pnr}`,
+              source: 'external-api',
+            },
+          });
+          return;
+        }
+      }
       res.status(404).json({ status: 'error', message: 'Booking not found with this PNR' });
       return;
     }
