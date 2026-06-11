@@ -67,3 +67,6 @@ alloc_out.txt
 alloc_res.txt
 C*alloc_res.txt
 nul
+
+# Project requirement docs (not code)
+documents require/
