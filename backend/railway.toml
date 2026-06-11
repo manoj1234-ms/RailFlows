@@ -1,0 +1,13 @@
+# RailFlow Railway Config
+# Deploy: railway.app → New Project → Deploy from GitHub repo
+# Root Directory: backend
+
+[build]
+  builder = "NIXPACKS"
+  buildCommand = "npm install --legacy-peer-deps && npm run build"
+  watchPatterns = ["src/**"]
+
+[deploy]
+  healthcheckPath = "/health"
+  healthcheckTimeout = 100
+  restartPolicyType = "always"

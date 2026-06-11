@@ -73,17 +73,34 @@ GitHub Actions runs on every push and PR:
 - **test:** Jest with PostgreSQL + Redis containers
 - **build:** (main only) TypeScript compile + Docker image
 
-## Deploy (Fly.io — Free)
+## Deploy (Free Tier)
+
+### Backend → Railway + Neon + Upstash
+
+| Service | What | Free Tier |
+|---------|------|-----------|
+| [Railway](https://railway.app) | Backend host | 500 hrs/month |
+| [Neon](https://neon.tech) | PostgreSQL | 0.5 GB, serverless |
+| [Upstash](https://upstash.com) | Redis + Kafka | 10K req/day |
+| [Resend](https://resend.com) | Email (SMTP) | 3K emails/month |
+
+**Steps:**
+1. Sign up on each service
+2. **Neon** → Create DB → copy PG vars into Railway env
+3. **Upstash** → Create Redis + Kafka clusters → copy URLs
+4. **Railway** → New Project → Deploy from GitHub repo (root: `/backend`)
+5. Set all env vars from `ENV_REFERENCE.md`
+
+Config: `backend/railway.toml`
+
+### Frontend → Vercel
 
 ```bash
-# Install flyctl: https://fly.io/docs/hands-on/install-flyctl/
-flyctl auth signup
-flyctl launch --no-deploy
-flyctl postgres create --name railflow-db --region bom --vm-size shared-cpu-1x-256
-flyctl postgres attach railflow-db --app railflow-api
-flyctl secrets set JWT_SECRET=your_secret JWT_REFRESH_SECRET=your_secret
-flyctl deploy
+cd frontend
+npm run build
+# Connect GitHub repo on vercel.com
+# Set VITE_API_URL=https://your-railway-app.up.railway.app
 ```
 
-Scripts: `scripts/deploy-fly.sh` (bash) or `scripts/deploy-fly.ps1` (PowerShell)
+Config: `frontend/vercel.json`
 
