@@ -112,11 +112,14 @@ export class BookingSagaOrchestrator {
 
       // Associate locked seats with this pending booking immediately
       for (const seatNum of seatNumbers) {
-        await db.run(
+        const updateRes = await db.run(
           `UPDATE seats SET booking_id = ? 
            WHERE train_number = ? AND coach_label = ? AND seat_number = ? AND locked_by = ?`,
           [bookingId, trainNumber, coachLabel, seatNum, userId]
         );
+        if ((updateRes.changes ?? 0) === 0) {
+          throw new Error(`Seat ${coachLabel}-${seatNum} is no longer locked by you.`);
+        }
       }
 
       // Log transaction step
@@ -303,6 +306,26 @@ export class BookingSagaOrchestrator {
 
     await db.run('BEGIN TRANSACTION;');
     try {
+      // Double-Check Lock Validation (Recommendation D)
+      const dbSeats = await db.all(
+        'SELECT id, status, locked_by FROM seats WHERE booking_id = ?',
+        [bookingId]
+      );
+      
+      const expectedCount = JSON.parse(booking.passengers).length;
+      if (dbSeats.length !== expectedCount) {
+        throw new Error(`Seat lock validation failed: Expected ${expectedCount} seats associated, but found ${dbSeats.length}`);
+      }
+
+      for (const seat of dbSeats) {
+        if (seat.status === 'BOOKED') {
+          throw new Error('Seat is already booked by another transaction');
+        }
+        if (seat.status === 'LOCKED' && seat.locked_by !== booking.user_id) {
+          throw new Error('Seat lock was reassigned to another user after expiration');
+        }
+      }
+
       // Confirm booking
       await db.run("UPDATE bookings SET status = 'CONFIRMED' WHERE id = ?", [bookingId]);
 
