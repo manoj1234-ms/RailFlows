@@ -359,4 +359,92 @@ The application data layer (`src/config/db.ts`) is abstracted behind a single `g
 
 ---
 
+## ADR-011: Application-Level AES-256-CBC Encryption for Aadhaar (DPDP Act 2023)
+
+**Status:** Accepted  
+**Date:** 2026-06-11
+
+### Context
+
+Under the Digital Personal Data Protection (DPDP) Act 2023 of India, passenger Aadhaar numbers represent highly sensitive personal identifier data. Storing them in plaintext in the database poses severe legal, privacy, and compliance risks. If database access logs or backups are compromised, passenger identities are exposed.
+
+### Decision
+
+Encrypt all Aadhaar numbers at the application layer using AES-256-CBC with a securely managed secret key before writing them to database serialization fields. Only decrypt them for authorized owner views, and record an audit log entry (`AUDIT_AADHAAR_ACCESS`) for every decryption.
+
+### Alternatives Considered
+
+| Option | Why Rejected |
+|---|---|
+| **Database Transparent Data Encryption (TDE)** | Only protects data at rest (on the hard drive). Does not prevent a database administrator with SQL access, or an attacker exploiting SQL injection, from viewing raw Aadhaar numbers. |
+| **One-way hashing (SHA-256)** | Prevents decryption entirely. While secure, we cannot display the original Aadhaar to the ticket owner or send it to official railway/government check APIs. |
+| **Plaintext Storage** | Violates the DPDP Act 2023 consent, encryption, and auditability requirements. |
+
+### Consequences
+
+- **Good:** Complete protection of passenger Aadhaar numbers inside Postgres/SQLite tables and backups.
+- **Good:** Explicit audit trail allows tracing every time an operator or user accesses Aadhaar details.
+- **Trade-off:** Secret key management becomes a single point of security. Loss of key means all stored passenger Aadhaar data becomes unrecoverable.
+
+---
+
+## ADR-012: Client-Side Card Tokenization for PCI-DSS Scope Reduction
+
+**Status:** Accepted  
+**Date:** 2026-06-11
+
+### Context
+
+Accepting card payments requires complying with Payment Card Industry Data Security Standards (PCI-DSS). If backend servers process, transmit, or store raw cardholder data (`cardNumber`, `cardExpiry`, `cardCvv`), the entire backend infrastructure falls under the scope of rigorous, expensive PCI-DSS audits (SAQ-D).
+
+### Decision
+
+Mandate client-side card tokenization using a third-party checkout interface (simulated local mock elements). The browser directly posts card details to the payment provider to receive a checkout token (`tok_mock_xxxx`). The backend booking endpoint accepts only this token and explicitly rejects any request payloads containing raw card credentials with a `400 Bad Request` PCI violation error.
+
+### Alternatives Considered
+
+| Option | Why Rejected |
+|---|---|
+| **Backend API Proxying** | The frontend posts card parameters to the backend, which forwards them to the payment gateway. Brings the backend servers into full PCI-DSS scope, requiring physical isolation, network segmentation, and annual audits. |
+| **Hosted Page Redirect** | Redirects the user entirely to the payment gateway's hosted page. Highly secure, but degrades user experience and retention due to browser redirection. |
+
+### Consequences
+
+- **Good:** Eliminates cardholder data transmission on RailFlow servers, drastically reducing audit scope (SAQ-A or SAQ-A-EP).
+- **Good:** Minimizes the risk of card data leakage through application logs, database tables, or memory dumps.
+- **Trade-off:** Requires robust frontend state management to coordinate the tokenization step prior to submitting bookings.
+
+---
+
+## ADR-013: Resilience and Throttling Design for External Railway API Integration
+
+**Status:** Accepted  
+**Date:** 2026-06-11
+
+### Context
+
+To provide real-world schedules, station listings, and live train tracks, the system integrates with external Indian Railway APIs (RapidAPI). However, these third-party endpoints are rate-limited, subject to unexpected outages, and introduce latency.
+
+### Decision
+
+Implement a resilient wrapper service (`RailwayApiService`) that wraps external API requests with:
+1. An in-memory Token Bucket rate limiter (max 2 burst tokens, 0.5 tokens/sec refill rate) to prevent quota exhaustion.
+2. An L2 Redis cache layer (30s for searches, 60s for live status) to minimize external request volume.
+3. A transparent database fallback query scanner that serves seeded local Postgres data when external requests are throttled, unconfigured, or fail.
+
+### Alternatives Considered
+
+| Option | Why Rejected |
+|---|---|
+| **Direct calls without caching or limits** | Rapidly exhausts API limits, spikes outbound latency, and exposes the application to cascading failures if the external API slows down. |
+| **Direct calls without DB fallback** | Outages in the third-party API immediately lead to platform-wide downtime for train search and live tracking. |
+
+### Consequences
+
+- **Good:** 100% platform uptime. The app degrades gracefully to simulated local data during external outages or quota limits.
+- **Good:** Substantial cost savings and fast page load times due to local caching of repeat queries.
+- **Trade-off:** Live status data may lag real-world tracks by up to the 60-second Redis cache TTL.
+
+---
+
 *ADRs follow [MADR format](https://adr.github.io/madr/). Each captures: Context (why this decision was needed), Decision (what was chosen), Alternatives Considered (with rejection rationale), and Consequences (honest trade-offs).*
