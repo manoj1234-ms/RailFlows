@@ -1,8 +1,7 @@
 FROM node:24-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
-RUN npm install --omit=dev --legacy-peer-deps
-COPY tsconfig.json ./
+COPY package*.json tsconfig.json ./
+RUN npm install --legacy-peer-deps
 COPY src/ ./src/
 RUN npx tsc
 
@@ -10,9 +9,9 @@ FROM node:24-alpine AS runner
 WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 appuser
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
 COPY package*.json ./
+RUN npm install --omit=dev --legacy-peer-deps
+COPY --from=builder /app/dist ./dist
 COPY --chown=appuser:nodejs .env.production .env
 USER appuser
 EXPOSE 5000
