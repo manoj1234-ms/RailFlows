@@ -57,6 +57,16 @@ cp backend/.env.example backend/.env
 
 Key variables: `PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `JWT_SECRET`, `JWT_REFRESH_SECRET`.
 
+## Documentation
+
+| File | Description |
+|------|-------------|
+| `SYSTEM_DESIGN.md` | Architecture, robustness, saga patterns |
+| `API_REFERENCE.md` | API endpoints reference |
+| `ADR.md` | Architecture Decision Records (DPDP Act, PCI-DSS, Railway API) |
+| `IMPROVEMENTS.md` | Planned improvements and roadmap |
+| `AGENTS.md` | Security testing rules and checklists |
+
 ## Testing
 
 ```bash
