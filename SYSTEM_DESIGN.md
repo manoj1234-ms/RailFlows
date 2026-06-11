@@ -35,6 +35,7 @@ graph TD
 ### 2.1 Virtual Queue & Traffic Staggering
 To prevent service degradation during traffic spikes, the **Virtual Queue Service** intercepts incoming booking requests.
 - **Queue Token Bindings**: Tokens are cryptographically bound to the user's `user_id`, IP address, and device fingerprint.
+
 - **Fairness Guarantee**: Tokens enforce a strict booking window (`booking_window_expires_at` using `TIMESTAMPTZ`). If a user attempts to refresh, they are returned the same queue token rather than a new position.
 - **Abuse Control**: Rapid refreshes or queue tampering automatically trigger a 30-minute IP and account lockout.
 
