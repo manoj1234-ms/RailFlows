@@ -8,6 +8,7 @@ COPY package*.json tsconfig.json ./
 RUN npm install --omit=dev --legacy-peer-deps
 
 COPY src/ ./src/
+RUN test -n "$RAILWAY_GIT_COMMIT_SHA" && echo "Deploy: $RAILWAY_GIT_COMMIT_SHA" || echo "Local build"
 RUN npx tsc && rm -rf ./src
 
 RUN mkdir -p logs && chown appuser:nodejs logs
