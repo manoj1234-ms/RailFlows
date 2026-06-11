@@ -62,17 +62,35 @@ router.get('/search', searchRateLimiter, validate(searchSchema), async (req: Req
   const db = await getDb();
 
   try {
+    // Look up station codes/names for better matching
+    const allStations = await db.all('SELECT code, name, city FROM stations');
+    const resolveStation = (query: string): string[] => {
+      const q = query.toLowerCase();
+      const matches = allStations.filter(s =>
+        s.code.toLowerCase() === q ||
+        s.name.toLowerCase().includes(q) ||
+        s.city.toLowerCase().includes(q)
+      );
+      // Return matched city/name values
+      return [...new Set(matches.map(s => s.city || s.name))];
+    };
+
+    const fromNames = resolveStation(from);
+    const toNames = resolveStation(to);
+
     const allTrains = await db.all('SELECT * FROM trains');
     
     // Fuzzy matching for station typos
     const matches = allTrains.filter(t => {
       const fromScore = Math.max(
         calculateStationMatchScore(from, t.from_station),
-        calculateStationMatchScore(from, t.train_number)
+        calculateStationMatchScore(from, t.train_number),
+        ...fromNames.map(n => calculateStationMatchScore(n, t.from_station))
       );
       const toScore = Math.max(
         calculateStationMatchScore(to, t.to_station),
-        calculateStationMatchScore(to, t.train_number)
+        calculateStationMatchScore(to, t.train_number),
+        ...toNames.map(n => calculateStationMatchScore(n, t.to_station))
       );
       
       // Threshold for match: substring matched or similarity > 50%

@@ -1,6 +1,6 @@
-import { useState, createElement, useEffect } from 'react';
+import { useState, createElement, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, useMotionValue, useTransform } from 'framer-motion';
 import { User, Sofa, Eye, CreditCard, ChevronLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/Card';
@@ -9,6 +9,34 @@ import { Input } from '@/components/ui/Input';
 import { bookingsApi } from '@/api/bookings';
 import { useBookingStore } from '@/store/bookingStore';
 import { BOOKING_STEPS, GENDER_OPTIONS, PAYMENT_METHODS } from '@/utils/constants';
+
+function TiltCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const rotateX = useTransform(y, [-150, 150], [8, -8]);
+  const rotateY = useTransform(x, [-150, 150], [-8, 8]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    x.set(e.clientX - rect.left - rect.width / 2);
+    y.set(e.clientY - rect.top - rect.height / 2);
+  };
+  const handleMouseLeave = () => { x.set(0); y.set(0); };
+
+  return (
+    <motion.div
+      ref={ref}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      style={{ rotateX, rotateY, transformStyle: 'preserve-3d' }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 export default function BookingFlow() {
   const navigate = useNavigate();
@@ -118,7 +146,8 @@ export default function BookingFlow() {
       {/* Step 1: Passenger Details */}
       {store.bookingStep === 1 && (
         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
-          <Card className="space-y-6">
+          <TiltCard>
+          <Card className="space-y-6" style={{ transformStyle: 'preserve-3d' }}>
             <h2 className="text-lg font-semibold">Passenger Details</h2>
             {passengerForms.map((p, i) => (
               <div key={i} className="p-4 glass rounded-lg space-y-4">
@@ -170,13 +199,15 @@ export default function BookingFlow() {
               <Button onClick={joinQueue}>Join Queue</Button>
             </div>
           </Card>
+          </TiltCard>
         </motion.div>
       )}
 
       {/* Step 2/3: Review (after auto-allocate) */}
       {store.bookingStep === 2 && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-          <Card className="space-y-6">
+          <TiltCard>
+          <Card className="space-y-6" style={{ transformStyle: 'preserve-3d' }}>
             <h2 className="text-lg font-semibold">Review & Pay</h2>
             <div className="space-y-3">
               <div className="glass rounded-lg p-4 space-y-2">
@@ -206,13 +237,15 @@ export default function BookingFlow() {
               <Button onClick={goToPayment} disabled={!store.paymentMethod}>Proceed to Payment</Button>
             </div>
           </Card>
+          </TiltCard>
         </motion.div>
       )}
 
       {/* Step 4: Confirm */}
       {store.bookingStep === 4 && (
         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
-          <Card className="space-y-6 text-center">
+          <TiltCard>
+          <Card className="space-y-6 text-center" style={{ transformStyle: 'preserve-3d' }}>
             <div className="w-16 h-16 mx-auto rounded-full bg-[var(--color-primary)]/20 flex items-center justify-center">
               <CreditCard className="text-[var(--color-primary)]" size={28} />
             </div>
@@ -222,6 +255,7 @@ export default function BookingFlow() {
               Confirm Booking
             </Button>
           </Card>
+          </TiltCard>
         </motion.div>
       )}
     </div>

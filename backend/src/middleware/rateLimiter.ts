@@ -5,12 +5,19 @@ import { AuthenticatedRequest } from './auth';
 import { getRedis, isRedisReady } from '../config/redis';
 
 const createRedisStore = (prefix: string) => {
-  return new RedisStore({
-    sendCommand: async (...args: any[]) => {
-      return getRedis().call(args[0], ...args.slice(1)) as any;
-    },
-    prefix: `rl:${prefix}:`,
-  });
+  try {
+    if (isRedisReady()) {
+      return new RedisStore({
+        sendCommand: async (...args: any[]) => {
+          return getRedis().call(args[0], ...args.slice(1)) as any;
+        },
+        prefix: `rl:${prefix}:`,
+      });
+    }
+  } catch {
+    // Redis not available — fall back to memory store
+  }
+  return undefined;
 };
 
 const isLoadTest = process.env.LOAD_TEST === 'true';
@@ -23,27 +30,27 @@ const retryAfterHandler = (windowMs: number) => {
   };
 };
 
-// Login limiter: 5 attempts per 15 minutes
+// Login limiter: 20 attempts per 15 minutes
 export const loginRateLimiter = rateLimit({
   store: createRedisStore('login'),
   windowMs: 15 * 60 * 1000,
-  max: getMax(5),
+  max: getMax(20),
   message: {
     status: 'error',
-    message: 'Too many login attempts. Please try again after 30 minutes (simulated lockout).',
+    message: 'Too many login attempts. Please try again later.',
   },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-// OTP limiter: 3 attempts per 10 minutes
+// OTP limiter: 10 attempts per 10 minutes
 export const otpRateLimiter = rateLimit({
   store: createRedisStore('otp'),
   windowMs: 10 * 60 * 1000,
-  max: getMax(3),
+  max: getMax(10),
   message: {
     status: 'error',
-    message: 'Too many OTP requests. Account locked for 10 minutes.',
+    message: 'Too many OTP requests. Please try again later.',
   },
   standardHeaders: true,
   legacyHeaders: false,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Clock, Users, ArrowRight, Loader2 } from 'lucide-react';
+import { Clock, Users, ArrowRight, Loader2, AlertTriangle, ListOrdered } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -24,14 +24,20 @@ export default function QueuePage() {
   const navigate = useNavigate();
   const [queueInfo, setQueueInfo] = useState<QueueInfo | null>(null);
   const [joining, setJoining] = useState(true);
+  const [allocating, setAllocating] = useState(false);
+  const [showWaitlistOption, setShowWaitlistOption] = useState(false);
+  const [waitlisting, setWaitlisting] = useState(false);
+  const [waitlistPnr, setWaitlistPnr] = useState<string | null>(null);
   const [deviceFp] = useState(generateFingerprint);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const joiningRef = useRef(false);
 
   const allocateAndRedirect = useCallback(async () => {
+    setAllocating(true);
     const state = useBookingStore.getState();
     if (state.seatNumbers.length > 0) {
       state.setStep(2);
+      setAllocating(false);
       navigate('/booking?step=2');
       return;
     }
@@ -47,15 +53,38 @@ export default function QueuePage() {
       setTimeout(() => navigate('/booking?step=2'), 800);
     } catch (err: any) {
       if (err.response?.status === 409) {
-        toast.error(err.response?.data?.message || 'No seats available');
+        setShowWaitlistOption(true);
+        toast.error('No seats available');
       } else if (err.response?.status === 403) {
         toast.error('Booking window expired. Re-queuing...');
         navigate('/queue');
       } else {
         toast.error(err.response?.data?.message || 'Allocation failed');
       }
+    } finally {
+      setAllocating(false);
     }
   }, [navigate]);
+
+  const joinWaitlist = useCallback(async () => {
+    const state = useBookingStore.getState();
+    setWaitlisting(true);
+    try {
+      const { data } = await bookingsApi.waitlist({
+        trainNumber: state.trainNumber!,
+        fromStation: state.fromStation,
+        toStation: state.toStation,
+        coachClass: state.coachLabel || '',
+        passengers: state.passengerCount,
+      });
+      setWaitlistPnr(data.data.pnr);
+      toast.success(`Added to waitlist. PNR: ${data.data.pnr}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to join waitlist');
+    } finally {
+      setWaitlisting(false);
+    }
+  }, []);
 
   const joinQueue = useCallback(async () => {
     if (joiningRef.current) return;
@@ -184,10 +213,48 @@ export default function QueuePage() {
                 </div>
               )}
 
-              {isReady && (
-                <Button onClick={allocateAndRedirect} size="lg">
-                  Proceed to Booking <ArrowRight size={18} />
+              {isReady && !showWaitlistOption && (
+                <Button onClick={allocateAndRedirect} loading={allocating} size="lg">
+                  {allocating ? 'Allocating Seats...' : 'Proceed to Booking'} {!allocating && <ArrowRight size={18} />}
                 </Button>
+              )}
+
+              {showWaitlistOption && !waitlistPnr && (
+                <div className="space-y-4 p-4 glass rounded-lg border border-amber-500/30">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <AlertTriangle size={18} />
+                    <span className="text-sm font-medium">No seats available right now</span>
+                  </div>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    All seats are currently booked. Join the waitlist to get auto-confirmed when a seat opens up.
+                  </p>
+                  <Button onClick={joinWaitlist} loading={waitlisting} variant="outline" className="w-full">
+                    <ListOrdered size={16} /> Join Waitlist
+                  </Button>
+                </div>
+              )}
+
+              {waitlistPnr && (
+                <div className="space-y-4 p-4 glass rounded-lg border border-emerald-500/30">
+                  <div className="flex items-center gap-2 text-emerald-400">
+                    <ListOrdered size={18} />
+                    <span className="text-sm font-medium">Added to Waitlist</span>
+                  </div>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    PNR: <span className="font-mono font-bold text-[var(--color-text)]">{waitlistPnr}</span>
+                  </p>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    You will be notified automatically when a seat becomes available.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button onClick={() => navigate('/my-trips')} variant="outline" size="sm" className="flex-1">
+                      View Status
+                    </Button>
+                    <Button onClick={() => navigate('/search')} size="sm" className="flex-1">
+                      Book Another
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           )}

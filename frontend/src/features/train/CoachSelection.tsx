@@ -38,6 +38,12 @@ export default function CoachSelection() {
   const setPassengerCountStore = useBookingStore((s) => s.setPassengerCount);
   const setBerthPrefs = useBookingStore((s) => s.setBerthPrefs);
 
+  const { data: trainRes } = useQuery({
+    queryKey: ['train-detail', id],
+    queryFn: () => trainsApi.getDetails(id!),
+    enabled: !!id,
+  });
+
   const { data: res, isLoading } = useQuery({
     queryKey: ['coach', id, coachClass],
     queryFn: () => trainsApi.getCoach(id!, coachClass),
@@ -63,7 +69,10 @@ export default function CoachSelection() {
 
   const handleContinue = () => {
     if (checkedBerths.length === 0) { toast.error('Select at least 1 berth preference'); return; }
-    setTrain(id!);
+    const train = trainRes?.data.data;
+    const fromCode = train?.route?.[0]?.stationCode || '';
+    const toCode = train?.route?.[train.route.length - 1]?.stationCode || '';
+    setTrain(id!, fromCode, toCode);
     setCoach(selectedCoach);
     setPassengerCountStore(passengerCount);
     setBerthPrefs(checkedBerths);

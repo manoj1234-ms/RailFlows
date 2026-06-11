@@ -22,6 +22,7 @@ const BookingFlow = lazy(() => import('@/features/booking/BookingFlow'));
 const QueuePage = lazy(() => import('@/features/queue/QueuePage'));
 const PaymentPage = lazy(() => import('@/features/payment/PaymentPage'));
 const BookingSuccess = lazy(() => import('@/features/booking/BookingSuccess'));
+const PnrStatus = lazy(() => import('@/features/pnr/PnrStatus'));
 const MyTrips = lazy(() => import('@/features/trips/MyTrips'));
 const History = lazy(() => import('@/features/trips/History'));
 const NotificationsPage = lazy(() => import('@/features/notifications/NotificationsPage'));
@@ -43,6 +44,10 @@ const Features = lazy(() => import('@/features/landing/Features'));
 const Pricing = lazy(() => import('@/features/landing/Pricing'));
 const Faq = lazy(() => import('@/features/landing/Faq'));
 const Support = lazy(() => import('@/features/landing/Support'));
+const Careers = lazy(() => import('@/features/landing/Careers'));
+const Blog = lazy(() => import('@/features/landing/Blog'));
+const Privacy = lazy(() => import('@/features/landing/Privacy'));
+const Terms = lazy(() => import('@/features/landing/Terms'));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30000 } },
@@ -78,11 +83,16 @@ function AppContent() {
             <Route path="/pricing" element={<Suspense fallback={<PageLoader />}><Pricing /></Suspense>} />
             <Route path="/faq" element={<Suspense fallback={<PageLoader />}><Faq /></Suspense>} />
             <Route path="/support" element={<Suspense fallback={<PageLoader />}><Support /></Suspense>} />
+            <Route path="/careers" element={<Suspense fallback={<PageLoader />}><Careers /></Suspense>} />
+            <Route path="/blog" element={<Suspense fallback={<PageLoader />}><Blog /></Suspense>} />
+            <Route path="/privacy" element={<Suspense fallback={<PageLoader />}><Privacy /></Suspense>} />
+            <Route path="/terms" element={<Suspense fallback={<PageLoader />}><Terms /></Suspense>} />
 
             <Route path="/login" element={<Suspense fallback={<PageLoader />}><Login /></Suspense>} />
             <Route path="/register" element={<Suspense fallback={<PageLoader />}><Register /></Suspense>} />
             <Route path="/forgot-password" element={<Suspense fallback={<PageLoader />}><ForgotPassword /></Suspense>} />
             <Route path="/verify-otp" element={<Suspense fallback={<PageLoader />}><VerifyOtp /></Suspense>} />
+            <Route path="/pnr-status" element={<Suspense fallback={<PageLoader />}><PnrStatus /></Suspense>} />
 
             <Route element={<ProtectedRoute />}>
               <Route path="/dashboard" element={<Suspense fallback={<PageLoader />}><Dashboard /></Suspense>} />

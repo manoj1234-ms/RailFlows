@@ -1,15 +1,88 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { CheckCircle, Download, Share2, MessageCircle, Ticket } from 'lucide-react';
+import { CheckCircle, Download, Share2, MessageCircle, Ticket, User, IndianRupee, Train } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Badge } from '@/components/ui/Badge';
 import { bookingsApi } from '@/api/bookings';
-import { formatDate } from '@/utils/format';
+import { formatDate, formatCurrency } from '@/utils/format';
+
+const GENDER_LABEL: Record<string, string> = { M: 'Male', F: 'Female', O: 'Other' };
+
+function TicketPreview({ booking, pnr }: { booking: any; pnr: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  return (
+    <div ref={ref} className="bg-white text-black rounded-xl p-6 space-y-4 shadow-lg" style={{ fontFamily: 'monospace' }}>
+      <div className="text-center border-b-2 border-dashed border-gray-300 pb-4">
+        <div className="text-xl font-bold tracking-wide">RAILFLOW</div>
+        <div className="text-xs text-gray-500">Indian Railways e-Ticket</div>
+      </div>
+      <div className="flex justify-between items-center">
+        <div>
+          <div className="text-lg font-bold">{booking.trainName}</div>
+          <div className="text-xs text-gray-500">{booking.trainNumber}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-sm font-bold">{booking.fromStation} → {booking.toStation}</div>
+        </div>
+      </div>
+      <div className="border-t border-dashed border-gray-300 pt-4 space-y-2">
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">PNR</span>
+          <span className="font-bold">{pnr}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">Status</span>
+          <span className="font-bold text-green-600">{booking.status}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">Date</span>
+          <span className="font-bold">{formatDate(booking.createdAt)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">Passengers</span>
+          <span className="font-bold">{booking.passengers?.length || 0}</span>
+        </div>
+      </div>
+      {booking.passengers && booking.passengers.length > 0 && (
+        <div className="border-t border-dashed border-gray-300 pt-4">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-gray-500">
+                <th className="text-left py-1">Name</th>
+                <th className="text-left py-1">Age</th>
+                <th className="text-left py-1">Gender</th>
+                <th className="text-left py-1">Seat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {booking.passengers.map((p: any, i: number) => (
+                <tr key={i} className="border-t border-gray-200">
+                  <td className="py-1 font-medium">{p.name}</td>
+                  <td className="py-1">{p.age}</td>
+                  <td className="py-1">{GENDER_LABEL[p.gender] || p.gender}</td>
+                  <td className="py-1">{p.seat || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="border-t-2 border-dashed border-gray-300 pt-4 flex justify-between text-sm">
+        <span className="text-gray-500">Total Fare</span>
+        <span className="font-bold text-lg">{formatCurrency(booking.price)}</span>
+      </div>
+      <div className="text-center text-[10px] text-gray-400 pt-2 border-t border-gray-200">
+        This is a computer-generated e-ticket. Valid with valid Photo ID.
+      </div>
+    </div>
+  );
+}
 
 export default function BookingSuccess() {
   const [searchParams] = useSearchParams();
@@ -75,27 +148,83 @@ export default function BookingSuccess() {
         {booking && (
           <Card className="text-left space-y-4">
             <div className="flex items-center justify-between">
-              <Badge variant="success">CONFIRMED</Badge>
+              <Badge variant={booking.status === 'CONFIRMED' ? 'success' : 'warning'}>{booking.status}</Badge>
               <span className="text-sm font-mono font-bold text-[var(--color-primary)]">PNR: {booking.pnr}</span>
             </div>
 
             <div className="glass rounded-lg p-4 space-y-2">
-              <div className="font-semibold">{booking.trainName} ({booking.trainNumber})</div>
+              <div className="flex items-center gap-2 font-semibold">
+                <Train size={18} className="text-[var(--color-primary)]" />
+                {booking.trainName} ({booking.trainNumber})
+              </div>
               <div className="text-sm text-[var(--color-text-muted)]">
                 {booking.fromStation} → {booking.toStation}
               </div>
-              <div className="text-sm">{formatDate(booking.createdAt)}</div>
+              <div className="text-sm text-[var(--color-text-muted)]">
+                {formatDate(booking.createdAt)}
+              </div>
             </div>
 
-            <div className="flex items-center justify-center">
-              <div className="w-32 h-32 bg-white rounded-lg flex items-center justify-center">
-                <Ticket size={64} className="text-black" />
+            {booking.passengers && booking.passengers.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <User size={14} /> Passengers
+                </h3>
+                <div className="glass rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)] text-xs">
+                        <th className="text-left p-2">Name</th>
+                        <th className="text-left p-2">Age</th>
+                        <th className="text-left p-2">Gender</th>
+                        <th className="text-left p-2">Seat</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {booking.passengers.map((p: any, i: number) => (
+                        <tr key={i} className="border-b border-[var(--color-border)]/50 last:border-0">
+                          <td className="p-2 font-medium">{p.name}</td>
+                          <td className="p-2">{p.age}</td>
+                          <td className="p-2">{GENDER_LABEL[p.gender] || p.gender}</td>
+                          <td className="p-2">{p.seat || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
+            )}
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                <IndianRupee size={14} /> Fare Summary
+              </h3>
+              <div className="glass rounded-lg p-4 space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-[var(--color-text-muted)]">Base Fare</span>
+                  <span>{formatCurrency(booking.price)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--color-text-muted)]">Convenience Fee</span>
+                  <span className="text-[var(--color-success)]">FREE</span>
+                </div>
+                <div className="flex justify-between border-t border-[var(--color-border)] pt-2 font-semibold">
+                  <span>Total Paid</span>
+                  <span className="text-[var(--color-primary)]">{formatCurrency(booking.price)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                <Ticket size={14} /> e-Ticket Preview
+              </h3>
+              <TicketPreview booking={booking} pnr={pnr} />
             </div>
 
             <div className="flex gap-3">
               <Button onClick={handleDownload} variant="outline" className="flex-1">
-                <Download size={16} /> Download
+                <Download size={16} /> Download PDF
               </Button>
               <Button onClick={handleWhatsApp} variant="outline" className="flex-1">
                 <MessageCircle size={16} /> WhatsApp

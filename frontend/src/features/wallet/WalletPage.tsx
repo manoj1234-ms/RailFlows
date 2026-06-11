@@ -57,7 +57,9 @@ export default function WalletPage() {
 
       <Card>
         <h2 className="font-semibold mb-4">Recent Transactions</h2>
-        {wallet?.transactions?.length === 0 ? (
+        {isLoading ? (
+          <Skeleton className="h-16" count={3} />
+        ) : wallet?.transactions?.length === 0 ? (
           <p className="text-center text-[var(--color-text-muted)] py-8">No transactions yet</p>
         ) : (
           <div className="space-y-3">

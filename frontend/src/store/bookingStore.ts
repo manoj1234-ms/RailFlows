@@ -11,6 +11,8 @@ export interface PaymentDetails {
 
 interface BookingState {
   trainNumber: string | null;
+  fromStation: string;
+  toStation: string;
   coachLabel: string | null;
   seatNumbers: number[];
   passengerCount: number;
@@ -22,7 +24,7 @@ interface BookingState {
   idempotencyKey: string | null;
   bookingStep: 1 | 2 | 3 | 4;
   setStep: (step: 1 | 2 | 3 | 4) => void;
-  setTrain: (trainNumber: string) => void;
+  setTrain: (trainNumber: string, fromStation?: string, toStation?: string) => void;
   setCoach: (coachLabel: string) => void;
   setSeats: (seatNumbers: number[]) => void;
   setPassengerCount: (count: number) => void;
@@ -37,6 +39,8 @@ interface BookingState {
 
 const initialState = {
   trainNumber: null,
+  fromStation: '',
+  toStation: '',
   coachLabel: null,
   seatNumbers: [],
   passengerCount: 1,
@@ -52,7 +56,7 @@ const initialState = {
 export const useBookingStore = create<BookingState>((set) => ({
   ...initialState,
   setStep: (step) => set({ bookingStep: step }),
-  setTrain: (trainNumber) => set({ trainNumber }),
+  setTrain: (trainNumber, fromStation?, toStation?) => set({ trainNumber, fromStation: fromStation || '', toStation: toStation || '' }),
   setCoach: (coachLabel) => set({ coachLabel }),
   setSeats: (seatNumbers) => set({ seatNumbers }),
   setPassengerCount: (count) => set({ passengerCount: count }),

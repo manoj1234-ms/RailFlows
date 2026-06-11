@@ -5,13 +5,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
+import { GoogleLogin } from '@react-oauth/google';
+import type { CredentialResponse } from '@react-oauth/google';
+
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { authApi } from '@/api/auth';
 import { useAuthStore } from '@/store/authStore';
-import { Train, Apple, Eye, EyeOff } from 'lucide-react';
+import { useWebAuthn } from '@/hooks/useWebAuthn';
+import { Train, Apple, Eye, EyeOff, Fingerprint } from 'lucide-react';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -33,6 +36,8 @@ export default function Login() {
   const [otp, setOtp] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [webauthnEmail, setWebauthnEmail] = useState('');
+  const { authenticate, webauthnLoading } = useWebAuthn();
 
   // 3D Tilt Card Motion Values
   const cardRef = useRef<HTMLDivElement>(null);
@@ -125,7 +130,8 @@ export default function Login() {
     setLoading(true);
     try {
       const { data } = await authApi.verifyOtp({ phone, code: otp });
-      setAuth({ id: data.data.userId, email: '', role: data.data.role, mfaEnabled: false, createdAt: '' }, data.data.accessToken);
+      setAuth({ id: data.data.userId, email: '', role: data.data.role as any, mfaEnabled: false, createdAt: '' }, data.data.accessToken);
+
       toast.success('Login successful');
       navigate('/dashboard');
     } catch (err: any) {
@@ -310,7 +316,7 @@ export default function Login() {
                 </svg>
                 Signing in with Google…
               </div>
-            ) : (
+            ) : import.meta.env.VITE_GOOGLE_CLIENT_ID ? (
               <div className="flex justify-center">
                 <GoogleLogin
                   onSuccess={handleGoogleSuccess}
@@ -322,7 +328,18 @@ export default function Login() {
                   useOneTap={false}
                 />
               </div>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full cursor-pointer font-semibold opacity-60"
+                onClick={() => toast.info('Google Client ID is not configured in frontend/.env')}
+              >
+                Sign in with Google (OAuth Unconfigured)
+              </Button>
             )}
+
 
             <Button
               type="button"
@@ -333,6 +350,35 @@ export default function Login() {
             >
               <Apple size={16} /> Apple (Coming Soon)
             </Button>
+
+            <div className="space-y-2">
+              <div className="relative">
+                <input
+                  type="email"
+                  placeholder="Enter email for biometric"
+                  value={webauthnEmail}
+                  onChange={(e) => setWebauthnEmail(e.target.value)}
+                  className="w-full px-3 py-2 pr-10 text-sm rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full cursor-pointer font-semibold"
+                loading={webauthnLoading}
+                disabled={!webauthnEmail}
+                onClick={async () => {
+                  const result = await authenticate(webauthnEmail);
+                  if (result?.accessToken) {
+                    setAuth({ id: 0, email: webauthnEmail, role: result.role as any, mfaEnabled: false, createdAt: '' }, result.accessToken);
+                    navigate('/dashboard');
+                  }
+                }}
+              >
+                <Fingerprint size={16} /> Sign in with Biometric
+              </Button>
+            </div>
           </div>
 
           <p className="text-center text-sm text-[var(--color-text-muted)]">

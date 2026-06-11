@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
+import { motion, useMotionValue, useTransform } from 'framer-motion';
 import { CreditCard, Shield, Zap, Building2, Smartphone, ChevronLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/Card';
@@ -19,12 +19,46 @@ const BANKS = [
   'Bank of Baroda', 'Canara Bank', 'Union Bank of India',
 ];
 
+const typeToIconKey: Record<string, string> = {
+  UPI: 'UPI',
+  CARD: 'Credit Card',
+  NETBANKING: 'Net Banking',
+};
+
 const methodIcons: Record<string, any> = {
   UPI: Smartphone,
   'Credit Card': CreditCard,
   'Debit Card': CreditCard,
   'Net Banking': Building2,
 };
+
+function TiltCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const rotateX = useTransform(y, [-150, 150], [8, -8]);
+  const rotateY = useTransform(x, [-150, 150], [-8, 8]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    x.set(e.clientX - rect.left - rect.width / 2);
+    y.set(e.clientY - rect.top - rect.height / 2);
+  };
+  const handleMouseLeave = () => { x.set(0); y.set(0); };
+
+  return (
+    <motion.div
+      ref={ref}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      style={{ rotateX, rotateY, transformStyle: 'preserve-3d' }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 export default function PaymentPage() {
   const navigate = useNavigate();
@@ -45,7 +79,8 @@ export default function PaymentPage() {
   const showNetBanking = selectedMethod === 'Net Banking';
   const isCardMethod = selectedMethod === 'Credit Card' || selectedMethod === 'Debit Card';
 
-  const Icon = selectedMethod ? methodIcons[selectedMethod] || CreditCard : CreditCard;
+  const iconKey = selectedMethod ? typeToIconKey[selectedMethod] || selectedMethod : '';
+  const Icon = iconKey ? methodIcons[iconKey] || CreditCard : CreditCard;
 
   const update = (key: string, value: string) => setForm(prev => ({ ...prev, [key]: value }));
 
@@ -176,24 +211,27 @@ export default function PaymentPage() {
             <>
               <div className="space-y-3">
                 {methods.map((m: any) => {
-                  const MIcon = methodIcons[m.type] || CreditCard;
+                  const mIconKey = typeToIconKey[m.type] || m.name;
+                  const MIcon = methodIcons[mIconKey] || CreditCard;
                   return (
-                    <button
-                      key={m.id}
-                      onClick={() => { store.setPaymentMethod(m.type); setForm({}); }}
-                      className={`w-full p-4 rounded-lg text-left transition-colors cursor-pointer flex items-center gap-3 ${
-                        selectedMethod === m.type
-                          ? 'bg-[var(--color-primary)]/20 border border-[var(--color-primary)]'
-                          : 'glass border border-[var(--color-border)] hover:border-[var(--color-primary)]/50'
-                      }`}
-                    >
-                      <MIcon size={20} className="text-[var(--color-primary)]" />
-                      <div>
-                        <div className="font-medium text-sm">{m.name}</div>
-                        <div className="text-xs text-[var(--color-text-muted)]">{m.type}</div>
-                      </div>
-                      {selectedMethod === m.type && <Badge variant="info" className="ml-auto">Selected</Badge>}
-                    </button>
+                    <TiltCard key={m.id}>
+                      <button
+                        onClick={() => { store.setPaymentMethod(m.type); setForm({}); }}
+                        className={`w-full p-4 rounded-lg text-left transition-colors cursor-pointer flex items-center gap-3 ${
+                          selectedMethod === m.type
+                            ? 'bg-[var(--color-primary)]/20 border border-[var(--color-primary)]'
+                            : 'glass border border-[var(--color-border)] hover:border-[var(--color-primary)]/50'
+                        }`}
+                        style={{ transformStyle: 'preserve-3d' }}
+                      >
+                        <MIcon size={20} className="text-[var(--color-primary)]" style={{ transform: 'translateZ(20px)' }} />
+                        <div style={{ transform: 'translateZ(16px)' }}>
+                          <div className="font-medium text-sm">{m.name}</div>
+                          <div className="text-xs text-[var(--color-text-muted)]">{m.type}</div>
+                        </div>
+                        {selectedMethod === m.type && <Badge variant="info" className="ml-auto" style={{ transform: 'translateZ(12px)' }}>Selected</Badge>}
+                      </button>
+                    </TiltCard>
                   );
                 })}
               </div>

@@ -48,6 +48,7 @@ import eventRoutes from './routes/event.routes';
 import refundRoutes, { adminRefundRouter } from './routes/refund.routes';
 import loyaltyRoutes from './routes/loyalty.routes';
 import chatbotRoutes from './routes/chatbot.routes';
+import webauthnRoutes from './routes/webauthn.routes';
 
 dotenv.config();
 
@@ -189,6 +190,7 @@ export function createApp() {
   app.use('/api/v1/events', eventRoutes);
   app.use('/api/v1/loyalty', csrfProtection, loyaltyRoutes);
   app.use('/api/v1/chatbot', chatbotRoutes);
+  app.use('/api/v1/webauthn', webauthnRoutes);
   app.use('/api/v1/admin/refunds', csrfProtection, adminRefundRouter);
 
   app.use('/api/auth', csrfProtection, authRateLimiter, authRoutes);
@@ -205,6 +207,7 @@ export function createApp() {
   app.use('/api/events', eventRoutes);
   app.use('/api/loyalty', csrfProtection, loyaltyRoutes);
   app.use('/api/chatbot', chatbotRoutes);
+  app.use('/api/webauthn', webauthnRoutes);
   app.use('/api/admin/refunds', csrfProtection, adminRefundRouter);
 
   app.use(errorHandler);

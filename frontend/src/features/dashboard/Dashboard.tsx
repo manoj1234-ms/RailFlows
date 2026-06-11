@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion';
 import {
   Train, Ticket, Wallet, Bell, Search, Star, TrendingUp,
   Clock, ShieldCheck, MapPin, Radio,
@@ -22,6 +22,34 @@ const quickActions = [
   { icon: Star, label: 'Loyalty', to: '/loyalty', color: 'from-purple-500 to-pink-500' },
 ];
 
+function TiltCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const rotateX = useTransform(y, [-150, 150], [8, -8]);
+  const rotateY = useTransform(x, [-150, 150], [-8, 8]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    x.set(e.clientX - rect.left - rect.width / 2);
+    y.set(e.clientY - rect.top - rect.height / 2);
+  };
+  const handleMouseLeave = () => { x.set(0); y.set(0); };
+
+  return (
+    <motion.div
+      ref={ref}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      style={{ rotateX, rotateY, transformStyle: 'preserve-3d' }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
   const [showMfa, setShowMfa] = useState(false);
@@ -36,6 +64,27 @@ export default function Dashboard() {
   });
 
   const upcoming = bookingsRes?.data.data?.upcoming || [];
+
+  if (isLoading && !bookingsRes) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-4 w-40" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Skeleton className="h-28" count={4} />
+        </div>
+        <div className="grid md:grid-cols-2 gap-4">
+          <Skeleton className="h-32" count={2} />
+        </div>
+        <Skeleton className="h-48" />
+        <div className="grid md:grid-cols-3 gap-4">
+          <Skeleton className="h-24" count={3} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
@@ -52,12 +101,14 @@ export default function Dashboard() {
         {quickActions.map((action, i) => (
           <motion.div key={action.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
             <Link to={action.to}>
-              <Card hover className="text-center space-y-3 py-6">
-                <div className={`w-12 h-12 mx-auto rounded-lg bg-gradient-to-br ${action.color} flex items-center justify-center`}>
-                  <action.icon size={22} className="text-white" />
-                </div>
-                <span className="text-sm font-medium">{action.label}</span>
-              </Card>
+              <TiltCard>
+                <Card hover className="text-center space-y-3 py-6" style={{ transformStyle: 'preserve-3d' }}>
+                  <div className={`w-12 h-12 mx-auto rounded-lg bg-gradient-to-br ${action.color} flex items-center justify-center`} style={{ transform: 'translateZ(24px)' }}>
+                    <action.icon size={22} className="text-white" />
+                  </div>
+                  <span className="text-sm font-medium" style={{ transform: 'translateZ(16px)' }}>{action.label}</span>
+                </Card>
+              </TiltCard>
             </Link>
           </motion.div>
         ))}
@@ -164,33 +215,39 @@ export default function Dashboard() {
 
       {/* Stats row */}
       <div className="grid md:grid-cols-3 gap-4">
-        <Card>
-          <div className="flex items-center gap-3">
-            <TrendingUp className="text-[var(--color-primary)]" size={24} />
-            <div>
-              <div className="text-2xl font-bold">{bookingsRes?.data.data?.all?.length || 0}</div>
-              <div className="text-sm text-[var(--color-text-muted)]">Total Bookings</div>
+        <TiltCard>
+          <Card style={{ transformStyle: 'preserve-3d' }}>
+            <div className="flex items-center gap-3" style={{ transform: 'translateZ(20px)' }}>
+              <TrendingUp className="text-[var(--color-primary)]" size={24} />
+              <div>
+                <div className="text-2xl font-bold">{bookingsRes?.data.data?.all?.length || 0}</div>
+                <div className="text-sm text-[var(--color-text-muted)]">Total Bookings</div>
+              </div>
             </div>
-          </div>
-        </Card>
-        <Card>
-          <div className="flex items-center gap-3">
-            <Wallet className="text-[var(--color-success)]" size={24} />
-            <div>
-              <div className="text-2xl font-bold">--</div>
-              <div className="text-sm text-[var(--color-text-muted)]">Wallet Balance</div>
+          </Card>
+        </TiltCard>
+        <TiltCard>
+          <Card style={{ transformStyle: 'preserve-3d' }}>
+            <div className="flex items-center gap-3" style={{ transform: 'translateZ(20px)' }}>
+              <Wallet className="text-[var(--color-success)]" size={24} />
+              <div>
+                <div className="text-2xl font-bold">--</div>
+                <div className="text-sm text-[var(--color-text-muted)]">Wallet Balance</div>
+              </div>
             </div>
-          </div>
-        </Card>
-        <Card>
-          <div className="flex items-center gap-3">
-            <Bell className="text-[var(--color-warning)]" size={24} />
-            <div>
-              <div className="text-2xl font-bold">0</div>
-              <div className="text-sm text-[var(--color-text-muted)]">Notifications</div>
+          </Card>
+        </TiltCard>
+        <TiltCard>
+          <Card style={{ transformStyle: 'preserve-3d' }}>
+            <div className="flex items-center gap-3" style={{ transform: 'translateZ(20px)' }}>
+              <Bell className="text-[var(--color-warning)]" size={24} />
+              <div>
+                <div className="text-2xl font-bold">0</div>
+                <div className="text-sm text-[var(--color-text-muted)]">Notifications</div>
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        </TiltCard>
       </div>
 
       {/* Modals */}

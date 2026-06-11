@@ -25,8 +25,8 @@ import jwt from 'jsonwebtoken';
 import { getDb } from '../config/db';
 import logger from '../utils/logger';
 import { RailwayApiService } from './railway-api.service';
+import { verifyToken } from '../middleware/auth';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'railflow-secret';
 const PROTOCOL_SENTINEL = 'railflow-v1';
 
 interface TrackSubscription {
@@ -56,8 +56,8 @@ function authenticateWsRequest(req: IncomingMessage): { userId: number } | null 
   if (!token) return null;
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id?: number; userId?: number };
-    const userId = decoded.id ?? decoded.userId;
+    const decoded = verifyToken(token);
+    const userId = decoded.id;
     if (!userId) return null;
     return { userId };
   } catch {

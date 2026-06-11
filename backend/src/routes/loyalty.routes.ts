@@ -14,6 +14,15 @@ const redeemSchema = {
   }),
 };
 
+router.get('/account', async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const account = await LoyaltyService.getOrCreateAccount(req.user!.id);
+    res.status(200).json({ status: 'success', data: account });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/points', async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const account = await LoyaltyService.getOrCreateAccount(req.user!.id);

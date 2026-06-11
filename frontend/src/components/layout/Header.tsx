@@ -20,6 +20,7 @@ export function Header() {
         { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { to: '/search', label: 'Search', icon: null },
         { to: '/my-trips', label: 'My Trips', icon: null },
+        { to: '/pnr-status', label: 'PNR Status', icon: null },
         { to: '/wallet', label: 'Wallet', icon: Wallet },
         { to: '/loyalty', label: 'Loyalty', icon: null },
       ]

@@ -1,10 +1,13 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { lazy, Suspense } from 'react';
 import { ArrowRight, Search, Shield, Zap, BarChart3, Bot, Wallet, Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { HeroScene } from '@/components/three/HeroScene';
-import { FloatingRouteCard } from '@/components/three/FloatingRouteCard';
 import { useAuthStore } from '@/store/authStore';
+import { Skeleton } from '@/components/ui/Skeleton';
+
+const HeroScene = lazy(() => import('@/components/three/HeroScene').then(m => ({ default: m.HeroScene })));
+const FloatingRouteCard = lazy(() => import('@/components/three/FloatingRouteCard').then(m => ({ default: m.FloatingRouteCard })));
 
 const stats = [
   { label: 'Daily Bookings', value: '50K+' },
@@ -31,7 +34,9 @@ export default function Landing() {
     <div className="space-y-0">
       {/* Hero */}
       <section className="relative min-h-[90vh] flex items-center justify-center overflow-hidden">
-        <HeroScene />
+        <Suspense fallback={<div className="absolute inset-0 bg-[var(--color-bg)]" />}>
+          <HeroScene />
+        </Suspense>
         <div className="absolute inset-0 bg-gradient-to-b from-[var(--color-bg)]/60 via-transparent to-[var(--color-bg)]" />
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[var(--color-primary)]/20 rounded-full blur-3xl animate-pulse" />
         <div className="absolute bottom-1/4 right-1/4 w-72 h-72 bg-[var(--color-secondary)]/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
@@ -111,21 +116,23 @@ export default function Landing() {
         </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {features.map((f, i) => (
-            <FloatingRouteCard key={f.title} intensity={8}>
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: i * 0.1 }}
-                viewport={{ once: true }}
-                className="glass rounded-xl p-6 space-y-4 hover:border-[var(--color-primary)]/50 transition-colors"
-              >
-                <div className="w-12 h-12 rounded-lg bg-[var(--color-primary)]/20 flex items-center justify-center">
-                  <f.icon className="text-[var(--color-primary)]" size={24} />
-                </div>
-                <h3 className="font-semibold text-lg">{f.title}</h3>
-                <p className="text-sm text-[var(--color-text-muted)]">{f.desc}</p>
-              </motion.div>
-            </FloatingRouteCard>
+            <Suspense key={f.title} fallback={<div className="glass rounded-xl p-6 space-y-4 h-40" />}>
+              <FloatingRouteCard intensity={8}>
+                <motion.div
+                  initial={{ opacity: 0, y: 30 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: i * 0.1 }}
+                  viewport={{ once: true }}
+                  className="glass rounded-xl p-6 space-y-4 hover:border-[var(--color-primary)]/50 transition-colors"
+                >
+                  <div className="w-12 h-12 rounded-lg bg-[var(--color-primary)]/20 flex items-center justify-center">
+                    <f.icon className="text-[var(--color-primary)]" size={24} />
+                  </div>
+                  <h3 className="font-semibold text-lg">{f.title}</h3>
+                  <p className="text-sm text-[var(--color-text-muted)]">{f.desc}</p>
+                </motion.div>
+              </FloatingRouteCard>
+            </Suspense>
           ))}
         </div>
       </section>
