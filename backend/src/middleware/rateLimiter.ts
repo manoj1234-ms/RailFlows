@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
 import { Request } from 'express';
 import { AuthenticatedRequest } from './auth';
@@ -23,7 +23,7 @@ const createRedisStore = (prefix: string) => {
 const isLoadTest = process.env.LOAD_TEST === 'true';
 const getMax = (limit: number) => (isLoadTest ? 10000 : limit);
 
-const validate = { xForwardedForHeader: false, ip: false };
+const validate = { xForwardedForHeader: false };
 
 export const loginRateLimiter = rateLimit({
   store: createRedisStore('login'),
@@ -52,7 +52,7 @@ export const bookingRateLimiter = rateLimit({
   validate,
   keyGenerator: (req: Request) => {
     const authReq = req as AuthenticatedRequest;
-    return authReq.user ? `user-${authReq.user.id}` : req.ip || 'unknown';
+    return authReq.user ? `user-${authReq.user.id}` : ipKeyGenerator(req.ip || 'unknown');
   },
   message: { status: 'error', message: 'Rate limit exceeded: Booking operations are limited to 10 requests per minute.' },
   standardHeaders: true,
