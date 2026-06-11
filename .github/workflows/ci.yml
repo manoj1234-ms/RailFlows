@@ -7,7 +7,7 @@ on:
     branches: [main, test]
 
 env:
-  NODE_VERSION: "24"
+  NODE_VERSION: "22"
 
 jobs:
   lint:
@@ -22,7 +22,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: ./backend/package-lock.json
-      - run: npm ci
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
       - name: TypeScript compile check
         run: npx tsc --noEmit
 
@@ -41,19 +42,19 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready -U railflow
-          --health-interval 10s
+          --health-cmd "pg_isready -U railflow -d railflow_test"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 10s
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -61,7 +62,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: ./backend/package-lock.json
-      - run: npm ci
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
       - name: Run tests
         run: npx jest --ci --coverage --forceExit
         env:
@@ -87,7 +89,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: npm ci
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
       - run: npx tsc
       - name: Build Docker image
         run: docker build -t railflow-api:latest .
