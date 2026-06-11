@@ -10,7 +10,7 @@ import { BookingSagaOrchestrator } from '../services/saga.service';
 import { NotificationService } from '../services/notification.service';
 import { PdfService } from '../services/pdf.service';
 import { CircuitBreaker, SurgePricingService } from '../services/pricing.service';
-import { maskAadhaar } from '../config/crypto';
+import { maskAadhaar, decrypt } from '../config/crypto';
 import {
   emitBookingConfirmed,
   emitBookingCancelled,
@@ -41,14 +41,16 @@ const confirmBookingSchema = {
         aadhaar: z.string().regex(/^\d{12}$/, 'Aadhaar must be exactly 12 digits'),
       })
     ).min(1),
+    aadhaarConsentGiven: z.boolean().optional(),
     paymentMethod: z.enum(['UPI', 'Credit Card', 'Debit Card', 'Net Banking']),
     paymentDetails: z.object({
       upiId: z.string().optional(),
-      cardNumber: z.string().optional(),
-      cardExpiry: z.string().optional(),
-      cardCvv: z.string().optional(),
+      paymentToken: z.string().optional(),
       cardholderName: z.string().optional(),
       bankName: z.string().optional(),
+      cardNumber: z.any().optional(),
+      cardExpiry: z.any().optional(),
+      cardCvv: z.any().optional(),
     }).optional(),
     idempotencyKey: z.string().min(10),
   }),
@@ -233,9 +235,38 @@ router.post('/confirm', authenticate, bookingRateLimiter, validate(confirmBookin
     res.status(401).json({ status: 'error', message: 'Unauthorized' });
     return;
   }
-  const { trainNumber, coachLabel, seatNumbers, passengers, paymentMethod, idempotencyKey } = req.body;
+  const { trainNumber, coachLabel, seatNumbers, passengers, paymentMethod, paymentDetails, aadhaarConsentGiven, idempotencyKey } = req.body;
   const userId = req.user.id;
   const ipAddress = req.ip || 'unknown';
+
+  // DPDP Act 2023: Enforce Aadhaar consent if any passenger provides an Aadhaar number
+  const hasAadhaar = passengers && passengers.some((p: any) => p.aadhaar);
+  if (hasAadhaar && aadhaarConsentGiven !== true) {
+    res.status(400).json({
+      status: 'error',
+      message: 'Explicit consent is required to process passenger Aadhaar data under DPDP Act 2023'
+    });
+    return;
+  }
+
+  // PCI-DSS Compliance: Enforce tokenization for credit/debit card payments
+  if (paymentMethod === 'Credit Card' || paymentMethod === 'Debit Card') {
+    const rawCard = req.body.paymentDetails as any;
+    if (rawCard && (rawCard.cardNumber || rawCard.cardExpiry || rawCard.cardCvv)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'PCI-DSS Violation: Raw card credentials cannot be processed by the server'
+      });
+      return;
+    }
+    if (!paymentDetails?.paymentToken) {
+      res.status(400).json({
+        status: 'error',
+        message: 'PCI-DSS Compliance: Payment token is required for credit/debit card transactions'
+      });
+      return;
+    }
+  }
 
   try {
     // 1. Verify queue access
@@ -259,7 +290,8 @@ router.post('/confirm', authenticate, bookingRateLimiter, validate(confirmBookin
       passengers,
       paymentMethod,
       idempotencyKey,
-      ipAddress
+      ipAddress,
+      paymentDetails?.paymentToken
     );
 
     if (result.success) {
@@ -302,13 +334,21 @@ router.get('/pnr/:pnr', validate(pnrParamsSchema), async (req: Request, res: Res
       return;
     }
 
-    // Parse and mask passenger info Aadhaar fields (API3 check)
+    // Helper to mask names for public views (e.g. "John Doe" -> "J*** D***")
+    const maskName = (name: string): string => {
+      return name.split(' ').map(part => {
+        if (part.length <= 1) return part;
+        return part[0] + '*'.repeat(part.length - 1);
+      }).join(' ');
+    };
+
+    // Parse and mask passenger info (no decryption for public access)
     const rawPassengers = JSON.parse(booking.passengers) as any[];
     const maskedPassengers = rawPassengers.map(p => ({
-      name: p.name,
+      name: maskName(p.name),
       age: p.age,
       gender: p.gender,
-      maskedAadhaar: maskAadhaar(p.aadhaar)
+      maskedAadhaar: 'XXXX-XXXX-XXXX'
     }));
 
     res.status(200).json({
@@ -359,14 +399,30 @@ router.get('/ticket/:pnr', authenticate, validate(pnrParamsSchema), async (req: 
       return;
     }
 
-    // Parse and mask passenger info Aadhaar fields (API3 check)
+    // Parse, decrypt, and mask passenger info Aadhaar fields for authorized owners/admins
     const rawPassengers = JSON.parse(booking.passengers) as any[];
-    const maskedPassengers = rawPassengers.map(p => ({
-      name: p.name,
-      age: p.age,
-      gender: p.gender,
-      maskedAadhaar: maskAadhaar(p.aadhaar)
-    }));
+    const processedPassengers = rawPassengers.map(p => {
+      let clearAadhaar = p.aadhaar;
+      if (p.aadhaar && p.aadhaar.includes(':')) {
+        try {
+          clearAadhaar = decrypt(p.aadhaar);
+        } catch {
+          clearAadhaar = 'XXXX-XXXX-XXXX';
+        }
+      }
+      return {
+        name: p.name,
+        age: p.age,
+        gender: p.gender,
+        maskedAadhaar: maskAadhaar(clearAadhaar)
+      };
+    });
+
+    // DPDP Act 2023 requirement: Log audit record whenever Aadhaar is decrypted and accessed
+    await db.run(
+      "INSERT INTO audit_logs (actor, action, ip, payload) VALUES (?, 'AUDIT_AADHAAR_ACCESS', ?, ?)",
+      [req.user.email, req.ip || 'unknown', JSON.stringify({ pnr, bookingId: booking.id, accessedByUserId: req.user.id })]
+    );
 
     res.status(200).json({
       status: 'success',
@@ -381,7 +437,7 @@ router.get('/ticket/:pnr', authenticate, validate(pnrParamsSchema), async (req: 
         status: booking.status,
         price: booking.price,
         createdAt: booking.created_at,
-        passengers: maskedPassengers,
+        passengers: processedPassengers,
         qrCodePayload: `RAILFLOW-PNR:${booking.pnr}:${booking.id}`,
       },
     });

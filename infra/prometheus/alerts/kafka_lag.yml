@@ -1,0 +1,99 @@
+---
+# RailFlow Kafka Consumer Lag Alerts
+# Place this file in your Prometheus rules directory and add it to prometheus.yml:
+#
+#   rule_files:
+#     - /etc/prometheus/alerts/*.yml
+#
+# Grafana Alert Manager template for Slack:
+#   {{ range .Alerts }}
+#   *[{{ .Status }}]* {{ .Annotations.summary }}
+#   Lag: {{ .Labels.group }}/{{ .Labels.topic }}/{{ .Labels.partition }}
+#   {{ end }}
+
+groups:
+  - name: railflow_kafka_lag
+    interval: 30s   # match the lag poll interval in kafka.service.ts
+
+    rules:
+      # ── Notification worker lag ────────────────────────────────────────────
+      # At 1000 messages behind during Tatkal hour, users are ~20 min delayed.
+      - alert: KafkaNotificationConsumerLagHigh
+        expr: |
+          kafka_consumer_group_lag{group="railflow-notifications"} > 1000
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: >-
+            Notification consumer lagging (lag={{ $value }}
+            on {{ $labels.topic }}/{{ $labels.partition }})
+          description: >-
+            The railflow-notifications consumer group is {{ $value }} messages
+            behind. Users may receive booking confirmations late.
+            Check the notification worker logs and scale up if needed.
+          runbook: https://wiki.internal/railflow/runbooks/kafka-lag
+
+      # ── Critical: notification queue completely stalled ────────────────────
+      - alert: KafkaNotificationConsumerLagCritical
+        expr: |
+          kafka_consumer_group_lag{group="railflow-notifications"} > 10000
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: >-
+            CRITICAL: Notification consumer stalled (lag={{ $value }})
+          description: >-
+            The railflow-notifications consumer group is {{ $value }} messages
+            behind. Immediate action required — scale up or restart the consumer.
+
+      # ── Seat cache invalidation consumer ──────────────────────────────────
+      # Stale seat cache means users see "no seats" when seats are available.
+      - alert: KafkaSeatCacheConsumerLagHigh
+        expr: |
+          kafka_consumer_group_lag{group="railflow-seat-cache"} > 500
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: >-
+            Seat cache consumer lagging (lag={{ $value }}) — stale seat availability data
+          description: >-
+            The railflow-seat-cache consumer group is {{ $value }} messages behind.
+            Users may see incorrect seat availability for up to 5 minutes until the
+            poll-based warmer catches up.
+
+      # ── Loyalty engine consumer ────────────────────────────────────────────
+      - alert: KafkaLoyaltyConsumerLagHigh
+        expr: |
+          kafka_consumer_group_lag{group="railflow-loyalty"} > 2000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: >-
+            Loyalty engine consumer lagging (lag={{ $value }}) — points may not credit immediately
+          description: >-
+            The railflow-loyalty consumer group is {{ $value }} messages behind.
+            Loyalty points for recent bookings may not be credited in real time.
+
+      # ── Generic: any consumer group with very high lag ─────────────────────
+      - alert: KafkaAnyConsumerLagVeryHigh
+        expr: |
+          kafka_consumer_group_lag > 50000
+        for: 10m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: >-
+            Kafka consumer {{ $labels.group }} critically behind (lag={{ $value }})
+          description: >-
+            Consumer group {{ $labels.group }} on topic {{ $labels.topic }}
+            partition {{ $labels.partition }} has fallen {{ $value }} messages behind.
+            This suggests a consumer crash or severe processing bottleneck.

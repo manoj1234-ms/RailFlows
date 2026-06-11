@@ -304,6 +304,217 @@ register('012_otp_storage', async (pool) => {
   `);
 });
 
+register('013_bookings_partitioning', async (pool) => {
+  /**
+   * Partition the bookings table by RANGE on created_at (monthly).
+   *
+   * Strategy: We CANNOT convert an existing non-partitioned table in-place.
+   * Instead we:
+   *   1. Rename the existing table to bookings_legacy
+   *   2. Create a new partitioned parent table
+   *   3. Create an initial "catch-all" partition covering the epoch → now + 2 years
+   *   4. Copy data from legacy to new partitioned table
+   *   5. Drop legacy (safe to skip if data migration should happen offline)
+   *
+   * Monthly child partitions are created by a scheduled job (see cron note below).
+   * For production, use pg_partman to manage child partition lifecycle automatically.
+   */
+  const { rows } = await pool.query(`
+    SELECT EXISTS (
+      SELECT 1 FROM information_schema.tables
+      WHERE table_name = 'bookings_partitioned'
+    ) AS already_done
+  `);
+
+  if (rows[0].already_done) return; // idempotent guard
+
+  // Step 1: Create new partitioned parent table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bookings_partitioned (
+      id           SERIAL,
+      user_id      INTEGER NOT NULL,
+      train_number VARCHAR(50),
+      pnr          VARCHAR(50) NOT NULL,
+      status       VARCHAR(50) NOT NULL,
+      price        REAL NOT NULL,
+      passengers   TEXT NOT NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (id, created_at)
+    ) PARTITION BY RANGE (created_at);
+  `);
+
+  // Step 2: Create initial catch-all partition (current year + next 2 years)
+  const currentYear = new Date().getFullYear();
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bookings_p_${currentYear}
+    PARTITION OF bookings_partitioned
+    FOR VALUES FROM ('${currentYear}-01-01') TO ('${currentYear + 3}-01-01');
+  `);
+
+  // Step 3: Copy existing data (non-blocking – ignore if source is empty)
+  await pool.query(`
+    INSERT INTO bookings_partitioned (id, user_id, train_number, pnr, status, price, passengers, created_at)
+    SELECT id, user_id, train_number, pnr, status, price, passengers, created_at
+    FROM bookings
+    ON CONFLICT DO NOTHING
+  `);
+
+  // Step 4: Composite indexes on the partitioned table for query patterns
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_bkp_user_created
+      ON bookings_partitioned(user_id, created_at DESC)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_bkp_pnr
+      ON bookings_partitioned(pnr)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_bkp_status_created
+      ON bookings_partitioned(status, created_at DESC)
+  `);
+
+  // NOTE: To fully cut over, run in a maintenance window:
+  //   ALTER TABLE bookings RENAME TO bookings_legacy;
+  //   ALTER TABLE bookings_partitioned RENAME TO bookings;
+  // Then update FK references accordingly. This migration prepares
+  // the shadow table so DBA can validate before promoting.
+});
+
+register('014_audit_logs_partitioning', async (pool) => {
+  /**
+   * audit_logs grows unboundedly. Partition by RANGE on created_at (yearly)
+   * and add BRIN index (cheap, suitable for append-only time-series).
+   */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_logs_partitioned (
+      id         BIGSERIAL,
+      actor      INTEGER,
+      action     VARCHAR(100) NOT NULL,
+      target     VARCHAR(255),
+      details    JSONB,
+      ip         VARCHAR(45),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (id, created_at)
+    ) PARTITION BY RANGE (created_at);
+  `);
+
+  const year = new Date().getFullYear();
+  for (let y = year; y <= year + 2; y++) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs_p_${y}
+      PARTITION OF audit_logs_partitioned
+      FOR VALUES FROM ('${y}-01-01') TO ('${y + 1}-01-01');
+    `);
+  }
+
+  // BRIN is extremely compact for monotonically-growing timestamps
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_audit_brin_created
+      ON audit_logs_partitioned USING BRIN (created_at)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_audit_actor_action
+      ON audit_logs_partitioned(actor, action)
+  `);
+});
+
+register('015_pgpartman_setup', async (pool) => {
+  /**
+   * pg_partman — automatic child-partition creation and maintenance.
+   *
+   * This migration is best-effort: pg_partman requires a superuser to
+   * CREATE EXTENSION and may not be available on all hosted Postgres providers.
+   * If it's unavailable, the Node.js partition-maintainer.service.ts takes over.
+   *
+   * If pg_partman IS available, register both partitioned tables so that
+   * pg_partman's run_maintenance() (called via pg_cron or manually) creates
+   * monthly bookings partitions and yearly audit_log partitions automatically.
+   */
+  try {
+    await pool.query(`CREATE EXTENSION IF NOT EXISTS pg_partman SCHEMA partman`);
+
+    // Register bookings_partitioned: monthly, keep 36 months of history
+    await pool.query(`
+      SELECT partman.create_parent(
+        p_parent_table   => 'public.bookings_partitioned',
+        p_control        => 'created_at',
+        p_type           => 'range',
+        p_interval       => '1 month',
+        p_premake        => 3
+      )
+    `);
+
+    // Register audit_logs_partitioned: yearly, keep 2 years
+    await pool.query(`
+      SELECT partman.create_parent(
+        p_parent_table   => 'public.audit_logs_partitioned',
+        p_control        => 'created_at',
+        p_type           => 'range',
+        p_interval       => '1 year',
+        p_premake        => 2
+      )
+    `);
+
+    // Set retention policies via pg_partman config table
+    await pool.query(`
+      UPDATE partman.part_config
+        SET retention = '36 months', retention_keep_table = false
+      WHERE parent_table = 'public.bookings_partitioned'
+    `);
+    await pool.query(`
+      UPDATE partman.part_config
+        SET retention = '2 years', retention_keep_table = true
+      WHERE parent_table = 'public.audit_logs_partitioned'
+    `);
+
+    console.log('[Migration 015] pg_partman registered for bookings_partitioned and audit_logs_partitioned');
+  } catch (err: any) {
+    // pg_partman not available — partition-maintainer.service.ts handles this
+    console.warn(`[Migration 015] pg_partman not available (${err.message}). Falling back to Node.js partition maintainer.`);
+  }
+});
+
+register('016_notification_retry', async (pool) => {
+  /**
+   * Delivery receipt tracking for the notification retry engine.
+   * - retry_count:   how many send attempts have been made
+   * - next_retry_at: when the next retry should run (NULL = not scheduled)
+   * - delivered_at:  set by provider webhook when delivery confirmed
+   */
+  await pool.query(`
+    ALTER TABLE notifications
+      ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0
+  `);
+  await pool.query(`
+    ALTER TABLE notifications
+      ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ
+  `);
+  await pool.query(`
+    ALTER TABLE notifications
+      ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ
+  `);
+  // Index for the retry worker: pick up failed notifications due for retry
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_notifications_retry
+      ON notifications(status, next_retry_at)
+      WHERE status = 'FAILED'
+  `);
+});
+
+register('017_aadhaar_consent', async (pool) => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS aadhaar_consents (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id),
+      pnr        VARCHAR(50) NOT NULL,
+      purpose    VARCHAR(255) NOT NULL,
+      ip_address VARCHAR(45) NOT NULL,
+      consent_given BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+});
+
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (

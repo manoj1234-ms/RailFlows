@@ -48,12 +48,29 @@ export async function initRedis(): Promise<void> {
     await client.connect();
     isConnected = true;
     await getRedisVersion();
+
+    // Apply memory cap + eviction policy.
+    // Caught separately: CONFIG SET is disabled on some managed providers.
+    const maxMemory = process.env.REDIS_MAX_MEMORY || '512mb';
+    try {
+      await client.config('SET', 'maxmemory', maxMemory);
+      await client.config('SET', 'maxmemory-policy', 'allkeys-lru');
+      logger.info(`[Redis] Memory policy set: maxmemory=${maxMemory} allkeys-lru`);
+    } catch (configErr: any) {
+      logger.warn({
+        msg: '[Redis] CONFIG SET blocked by provider — set maxmemory and maxmemory-policy in your Redis server config or cloud console',
+        maxMemory,
+        error: configErr.message,
+      });
+    }
+
     logger.info('[Redis] Initialized successfully (v' + (_redisVersion || '?') + ')');
   } catch (err: any) {
     isConnected = false;
     logger.warn({ msg: '[Redis] Failed to connect, running without Redis', error: err.message });
   }
 }
+
 
 export async function closeRedis(): Promise<void> {
   if (redisClient) {

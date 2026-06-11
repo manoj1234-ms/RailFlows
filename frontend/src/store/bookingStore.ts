@@ -4,9 +4,7 @@ type BerthVal = 'LB' | 'MB' | 'UB' | 'SL' | 'SU';
 
 export interface PaymentDetails {
   upiId?: string;
-  cardNumber?: string;
-  cardExpiry?: string;
-  cardCvv?: string;
+  paymentToken?: string;
   cardholderName?: string;
   bankName?: string;
 }
@@ -18,6 +16,7 @@ interface BookingState {
   passengerCount: number;
   berthPrefs: BerthVal[];
   passengers: { name: string; age: number; gender: 'M' | 'F' | 'O'; aadhaar: string }[];
+  aadhaarConsentGiven: boolean;
   paymentMethod: string | null;
   paymentDetails: PaymentDetails;
   idempotencyKey: string | null;
@@ -29,6 +28,7 @@ interface BookingState {
   setPassengerCount: (count: number) => void;
   setBerthPrefs: (prefs: BerthVal[]) => void;
   setPassengers: (passengers: BookingState['passengers']) => void;
+  setAadhaarConsentGiven: (given: boolean) => void;
   setPaymentMethod: (method: string) => void;
   setPaymentDetails: (details: PaymentDetails) => void;
   setIdempotencyKey: (key: string) => void;
@@ -42,6 +42,7 @@ const initialState = {
   passengerCount: 1,
   berthPrefs: [],
   passengers: [],
+  aadhaarConsentGiven: false,
   paymentMethod: null,
   paymentDetails: {} as PaymentDetails,
   idempotencyKey: null,
@@ -57,6 +58,7 @@ export const useBookingStore = create<BookingState>((set) => ({
   setPassengerCount: (count) => set({ passengerCount: count }),
   setBerthPrefs: (prefs) => set({ berthPrefs: prefs }),
   setPassengers: (passengers) => set({ passengers }),
+  setAadhaarConsentGiven: (aadhaarConsentGiven) => set({ aadhaarConsentGiven }),
   setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
   setPaymentDetails: (paymentDetails) => set({ paymentDetails }),
   setIdempotencyKey: (idempotencyKey) => set({ idempotencyKey }),

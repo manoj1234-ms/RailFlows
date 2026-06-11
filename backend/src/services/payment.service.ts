@@ -45,7 +45,8 @@ export class PaymentService {
     bookingId: number,
     amount: number,
     paymentMethod: string,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    paymentToken?: string
   ): Promise<PaymentResult> {
     if (idempotencyKey) {
       const cached = await getIdempotency(idempotencyKey);
@@ -53,7 +54,7 @@ export class PaymentService {
     }
 
     const db = await getDb();
-    let transactionId = this.generateTransactionId();
+    let transactionId = paymentToken || this.generateTransactionId();
 
     const razorpay = getRazorpay();
     if (razorpay) {

@@ -59,6 +59,10 @@ export default function BookingFlow() {
       toast.error('Fill all passenger details correctly');
       return;
     }
+    if (!store.aadhaarConsentGiven) {
+      toast.error('Aadhaar processing consent is required to join queue');
+      return;
+    }
     saveForms();
     navigate('/queue');
   };
@@ -74,6 +78,7 @@ export default function BookingFlow() {
         coachLabel: store.coachLabel!,
         seatNumbers: store.seatNumbers,
         passengers: store.passengers,
+        aadhaarConsentGiven: store.aadhaarConsentGiven,
         paymentMethod: store.paymentMethod || 'UPI',
         idempotencyKey,
       });
@@ -143,6 +148,21 @@ export default function BookingFlow() {
               </div>
             ))}
             <Button variant="outline" size="sm" onClick={addPassenger}>+ Add Passenger</Button>
+            
+            {/* Aadhaar Consent Checkbox */}
+            <div className="flex items-start gap-2.5 p-3 glass rounded-lg my-2 text-left">
+              <input
+                type="checkbox"
+                id="aadhaar-consent"
+                checked={store.aadhaarConsentGiven}
+                onChange={(e) => store.setAadhaarConsentGiven(e.target.checked)}
+                className="mt-1 accent-[var(--color-primary)] cursor-pointer"
+              />
+              <label htmlFor="aadhaar-consent" className="text-xs text-[var(--color-text-muted)] leading-relaxed cursor-pointer select-none">
+                I hereby declare that I have obtained explicit consent from all passengers to share their Aadhaar numbers for identity verification and ticket booking purposes in compliance with the DPDP Act 2023.
+              </label>
+            </div>
+
             <div className="flex justify-between">
               <Button variant="ghost" onClick={handleBack}>
                 <ChevronLeft size={18} /> Back

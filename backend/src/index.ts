@@ -26,6 +26,12 @@ import { trackHttpRequest, incrementActiveConnections, decrementActiveConnection
 import metricsRouter from './middleware/metrics';
 import { setupLiveTracking, closeLiveTracking } from './services/live-tracking-ws.service';
 import { runMigrations } from './migrations/index';
+import { startSeatWarmer, stopSeatWarmer } from './services/seat-warmer.service';
+import './config/otel'; // OTel SDK bootstrap — no-op unless OTEL_ENABLED=true
+import { shutdownOtel } from './config/otel';
+import { startPartitionMaintainer, stopPartitionMaintainer } from './services/partition-maintainer.service';
+import { NotificationService } from './services/notification.service';
+
 
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
@@ -239,6 +245,18 @@ async function startServer() {
       logger.warn('[Kafka] Running without Kafka — set KAFKA_BROKERS env var to enable event streaming');
     }
 
+    // Start seat pre-warm cache daemon (non-blocking)
+    startSeatWarmer(getPool());
+
+    // Start partition maintainer (creates next month/year partitions daily)
+    startPartitionMaintainer(getPool());
+
+    // Start Kafka consumer lag monitor
+    if (isKafkaReady()) {
+      const { startLagMonitor } = await import('./services/kafka.service');
+      startLagMonitor(['railflow-notifications', 'railflow-seat-cache', 'railflow-loyalty']);
+    }
+
     const app = createApp();
     const server = http.createServer(app);
 
@@ -268,11 +286,24 @@ async function startServer() {
           logger.info(`[Cache Engine] Cleaned ${cleaned} expired cache entries.`);
         }
       }, 60 * 1000);
+
+      setInterval(async () => {
+        try {
+          await NotificationService.processRetryQueue();
+        } catch (e: any) {
+          logger.error({ msg: '[Notification] Retry worker error', error: e.message });
+        }
+      }, 5 * 60 * 1000); // every 5 minutes
     });
 
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}. Shutting down gracefully...`);
+      await shutdownOtel();
+      stopSeatWarmer();
+      stopPartitionMaintainer();
       closeLiveTracking();
+
+
       server.close(async () => {
         await stopQueueWorkers();
         await closeKafka();

@@ -260,3 +260,81 @@ export async function emitSeatReleased(trainNumber: string, seatNumbers: number[
 export async function emitEmailNotification(event: NotificationEmailEvent): Promise<void> {
   await publishEvent(TOPICS.NOTIFICATION_EMAIL, event, event.referenceId);
 }
+
+// ─────────────────────────────────────────────
+// Kafka Consumer Lag Monitor
+// ─────────────────────────────────────────────
+import { kafkaConsumerLag } from '../middleware/metrics';
+
+const LAG_POLL_MS = 30_000;
+let _lagMonitorId: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Poll Kafka Admin API every 30s to compute per-partition consumer lag
+ * and expose it on the `kafka_consumer_group_lag` Prometheus gauge.
+ *
+ * Lag = (latest offset on broker) − (committed offset for consumer group)
+ */
+export function startLagMonitor(groupIds: string[]): void {
+  if (!kafka) {
+    logger.warn('[Kafka] startLagMonitor: Kafka not ready — skipping lag monitoring');
+    return;
+  }
+
+  const admin = kafka.admin();
+
+  async function pollLag(): Promise<void> {
+    try {
+      await admin.connect();
+
+      for (const groupId of groupIds) {
+        try {
+          // fetchOffsets returns { topic, partitions }[] directly
+          const committedTopics = await admin.fetchOffsets({ groupId });
+
+          for (const topicOffsets of committedTopics) {
+            // Fetch latest (end) offsets from the broker for the same topic
+            const latestOffsets = await admin.fetchTopicOffsets(topicOffsets.topic);
+
+            for (const partitionInfo of topicOffsets.partitions) {
+              const committed = parseInt(partitionInfo.offset, 10);
+              const latestEntry = latestOffsets.find(
+                (lo) => lo.partition === partitionInfo.partition
+              );
+              const latest = latestEntry ? parseInt(latestEntry.offset, 10) : 0;
+              const lag = Math.max(0, latest - committed);
+
+              kafkaConsumerLag.set(
+                {
+                  group: groupId,
+                  topic: topicOffsets.topic,
+                  partition: String(partitionInfo.partition),
+                },
+                lag
+              );
+            }
+          }
+        } catch (groupErr: any) {
+          logger.warn({ msg: `[Kafka] Lag poll failed for group ${groupId}`, error: groupErr.message });
+        }
+      }
+    } catch (err: any) {
+      logger.error({ msg: '[Kafka] Admin connect failed in lag monitor', error: err.message });
+    } finally {
+      try { await admin.disconnect(); } catch { /* ignore */ }
+    }
+  }
+
+  // Run immediately then on interval
+  pollLag().catch(() => {});
+  _lagMonitorId = setInterval(() => { pollLag().catch(() => {}); }, LAG_POLL_MS);
+  logger.info(`[Kafka] Lag monitor started for groups: ${groupIds.join(', ')} (poll every ${LAG_POLL_MS / 1000}s)`);
+}
+
+export function stopLagMonitor(): void {
+  if (_lagMonitorId) {
+    clearInterval(_lagMonitorId);
+    _lagMonitorId = null;
+    logger.info('[Kafka] Lag monitor stopped');
+  }
+}

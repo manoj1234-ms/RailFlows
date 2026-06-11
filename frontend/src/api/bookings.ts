@@ -13,12 +13,11 @@ export const bookingsApi = {
     coachLabel: string;
     seatNumbers: number[];
     passengers: { name: string; age: number; gender: string; aadhaar: string }[];
+    aadhaarConsentGiven?: boolean;
     paymentMethod: string;
     paymentDetails?: {
       upiId?: string;
-      cardNumber?: string;
-      cardExpiry?: string;
-      cardCvv?: string;
+      paymentToken?: string;
       cardholderName?: string;
       bankName?: string;
     };

@@ -5,6 +5,7 @@ import { validate } from '../middleware/validate';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth';
 import { LiveTrackingService } from '../services/live-tracking.service';
 import { cache, CACHE_TTL } from '../services/cache.service';
+import { RailwayApiService } from '../services/railway-api.service';
 
 const router = Router();
 
@@ -83,7 +84,7 @@ router.get('/:number/live', validate(trainNumberSchema), async (req: Request, re
   const { number } = req.params;
 
   try {
-    const status = await LiveTrackingService.getLiveStatus(number);
+    const status = await RailwayApiService.getLiveStatus(number);
     if (!status) {
       res.status(404).json({ status: 'error', message: 'Live tracking not available for this train' });
       return;
@@ -199,34 +200,10 @@ router.get('/fare/enquiry', validate(fareEnquirySchema), async (req: Request, re
 router.get('/between/stations', validate(betweenStationsSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const from = (req.query.from as string).toUpperCase();
   const to = (req.query.to as string).toUpperCase();
-  const cacheKey = `between:${from}:${to}`;
-
-  const cached = await cache.get<any>(cacheKey);
-  if (cached) {
-    res.status(200).json({ status: 'success', data: cached, source: 'cache' });
-    return;
-  }
-
-  const db = await getDb();
 
   try {
-    const trains = await db.all(
-      `SELECT t.train_number, t.name, t.from_station, t.to_station,
-              t.departure_time, t.arrival_time, t.base_fare,
-              tr1.arrival_time AS board_at, tr1.departure_time AS board_departure,
-              tr1.distance_km AS board_distance,
-              tr2.arrival_time AS alight_at, tr2.distance_km AS alight_distance,
-              (tr2.distance_km - tr1.distance_km) AS travel_distance
-       FROM trains t
-       JOIN train_routes tr1 ON t.train_number = tr1.train_number AND tr1.station_code = $1
-       JOIN train_routes tr2 ON t.train_number = tr2.train_number AND tr2.station_code = $2
-       WHERE tr1.stop_number < tr2.stop_number
-       ORDER BY travel_distance`,
-      [from, to]
-    );
-
-    await cache.set(cacheKey, trains, CACHE_TTL.TRAIN_SEARCH);
-    res.status(200).json({ status: 'success', data: trains, source: 'database' });
+    const trains = await RailwayApiService.getTrainsBetweenStations(from, to);
+    res.status(200).json({ status: 'success', data: trains, source: 'railway-api' });
   } catch (error) {
     next(error);
   }

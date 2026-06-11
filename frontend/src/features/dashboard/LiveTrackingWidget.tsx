@@ -1,7 +1,8 @@
 /**
  * LiveTrackingWidget.tsx
- * Opens a real WebSocket connection to ws://localhost:5000/ws/live-tracking?train=<NUMBER>
- * and displays live status updates as they arrive from the backend simulation.
+ * Opens a secure WebSocket connection to /ws/live-tracking?train=<NUMBER>
+ * Authentication is passed via Sec-WebSocket-Protocol subprotocol header
+ * (NOT as a query param, which would appear in Nginx/CDN logs).
  */
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
@@ -35,9 +36,20 @@ export default function LiveTrackingWidget({ trainNumber, onClose }: Props) {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [pulse, setPulse] = useState(false);
 
+  /** Build WebSocket URL + subprotocol array for secure auth */
+  function buildWsConfig(): { url: string; protocols: string[] } {
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsBase  = import.meta.env.VITE_WS_URL || `${wsProto}//localhost:5000`;
+    const url     = `${wsBase}/ws/live-tracking?train=${encodeURIComponent(trainNumber)}`;
+    // Token is passed as a subprotocol value — never in the URL
+    const token   = localStorage.getItem('accessToken') || '';
+    const protocols = ['railflow-v1', `Bearer.${token}`];
+    return { url, protocols };
+  }
+
   useEffect(() => {
-    const wsUrl = `${import.meta.env.VITE_WS_URL || 'ws://localhost:5000'}/ws/live-tracking?train=${encodeURIComponent(trainNumber)}`;
-    const ws = new WebSocket(wsUrl);
+    const { url, protocols } = buildWsConfig();
+    const ws = new WebSocket(url, protocols);
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -70,8 +82,8 @@ export default function LiveTrackingWidget({ trainNumber, onClose }: Props) {
     if (wsRef.current) wsRef.current.close();
     setConnState('connecting');
     setStatus(null);
-    const wsUrl = `${import.meta.env.VITE_WS_URL || 'ws://localhost:5000'}/ws/live-tracking?train=${encodeURIComponent(trainNumber)}`;
-    const ws = new WebSocket(wsUrl);
+    const { url, protocols } = buildWsConfig();
+    const ws = new WebSocket(url, protocols);
     wsRef.current = ws;
     ws.onopen = () => setConnState('connected');
     ws.onmessage = (ev) => {

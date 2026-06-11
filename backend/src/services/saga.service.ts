@@ -6,6 +6,7 @@ import { LoyaltyService } from './loyalty.service';
 import { PaymentService } from './payment.service';
 import { isRazorpayConfigured } from '../config/razorpay';
 import logger from '../utils/logger';
+import { encrypt } from '../config/crypto';
 
 export interface PassengerInfo {
   name: string;
@@ -63,7 +64,8 @@ export class BookingSagaOrchestrator {
     passengers: PassengerInfo[],
     paymentMethod: string,
     idempotencyKey: string,
-    ipAddress: string
+    ipAddress: string,
+    paymentToken?: string
   ): Promise<SagaResult> {
     const db = await getDb();
     
@@ -102,13 +104,28 @@ export class BookingSagaOrchestrator {
 
     let bookingId: number;
     try {
+      // Encrypt passenger Aadhaar at application layer before database serialization
+      const securePassengers = passengers.map(p => ({
+        name: p.name,
+        age: p.age,
+        gender: p.gender,
+        aadhaar: encrypt(p.aadhaar)
+      }));
+
       // Step 2: Create Booking record in PENDING state
       const bookingRes = await db.run(
         `INSERT INTO bookings (user_id, train_number, pnr, status, price, passengers)
          VALUES (?, ?, ?, 'PENDING', ?, ?)`,
-        [userId, trainNumber, pnr, totalPrice, JSON.stringify(passengers)]
+        [userId, trainNumber, pnr, totalPrice, JSON.stringify(securePassengers)]
       );
       bookingId = bookingRes.lastID!;
+
+      // Record Aadhaar consent log
+      await db.run(
+        `INSERT INTO aadhaar_consents (user_id, pnr, purpose, ip_address, consent_given)
+         VALUES (?, ?, ?, ?, ?)`,
+        [userId, pnr, `Passenger Identity Verification for Booking PNR ${pnr}`, ipAddress, true]
+      );
 
       // Associate locked seats with this pending booking immediately
       for (const seatNum of seatNumbers) {
@@ -141,7 +158,8 @@ export class BookingSagaOrchestrator {
         bookingId,
         totalPrice,
         paymentMethod,
-        idempotencyKey
+        idempotencyKey,
+        paymentToken
       );
 
       if (!initResult.success) {

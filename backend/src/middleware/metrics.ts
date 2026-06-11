@@ -50,6 +50,14 @@ const queueJobsTotal = new client.Counter({
 });
 register.registerMetric(queueJobsTotal);
 
+// Kafka consumer lag — set by kafka.service.ts lag monitor every 30s
+export const kafkaConsumerLag = new client.Gauge({
+  name: 'kafka_consumer_group_lag',
+  help: 'Number of messages a Kafka consumer group is behind the latest offset',
+  labelNames: ['group', 'topic', 'partition'],
+});
+register.registerMetric(kafkaConsumerLag);
+
 export function trackHttpRequest(method: string, route: string, statusCode: number, durationMs: number) {
   httpRequestsTotal.inc({ method, route, status_code: statusCode });
   httpRequestDuration.observe({ method, route, status_code: statusCode }, durationMs / 1000);
