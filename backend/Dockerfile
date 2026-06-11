@@ -1,7 +1,7 @@
 FROM node:24-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install --omit=dev --legacy-peer-deps
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npx tsc
