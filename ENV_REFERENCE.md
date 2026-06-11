@@ -21,10 +21,12 @@ PGSSLMODE=require
 # ── Redis (Upstash) ───────────────────────
 REDIS_URL=rediss://default:xxx@us1-valid-whale-12345.upstash.io:6379
 
-# ── Kafka (Upstash) ───────────────────────
-KAFKA_BROKERS=valid-whale-12345.upstash.io:9092
-KAFKA_SASL_USERNAME=xxx
-KAFKA_SASL_PASSWORD=xxx
+# ── Kafka (Redpanda Cloud) ────────────────
+KAFKA_BROKERS=d8la8m4c8ndjhut5ot5g.any.ap-south-1.mpx.prd.cloud.redpanda.com:9092
+KAFKA_SASL_USERNAME=railflows-user
+KAFKA_SASL_PASSWORD=<saved password>
+KAFKA_SASL_MECHANISM=SCRAM-SHA-256
+KAFKA_SSL=true
 
 # ── JWT ───────────────────────────────────
 JWT_SECRET=your_random_secret_here
