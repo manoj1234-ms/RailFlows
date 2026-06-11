@@ -9,6 +9,11 @@ build/
 out/
 .next/
 .serverless/
+backend/dist/
+
+# Test coverage
+coverage/
+coverage/
 
 # Logs
 logs
@@ -27,6 +32,7 @@ dump.rdb
 .parcel-cache/
 .eslintcache
 .stylelintcache
+*.tsbuildinfo
 
 # Environment variables
 .env
@@ -37,9 +43,13 @@ dump.rdb
 .env.backup
 .env.*.local
 
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
 # IDE and Editor configs
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea/
 *.suo
 *.ntvs*
