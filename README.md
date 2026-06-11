@@ -72,3 +72,18 @@ GitHub Actions runs on every push and PR:
 - **lint:** TypeScript compilation check
 - **test:** Jest with PostgreSQL + Redis containers
 - **build:** (main only) TypeScript compile + Docker image
+
+## Deploy (Fly.io — Free)
+
+```bash
+# Install flyctl: https://fly.io/docs/hands-on/install-flyctl/
+flyctl auth signup
+flyctl launch --no-deploy
+flyctl postgres create --name railflow-db --region bom --vm-size shared-cpu-1x-256
+flyctl postgres attach railflow-db --app railflow-api
+flyctl secrets set JWT_SECRET=your_secret JWT_REFRESH_SECRET=your_secret
+flyctl deploy
+```
+
+Scripts: `scripts/deploy-fly.sh` (bash) or `scripts/deploy-fly.ps1` (PowerShell)
+
