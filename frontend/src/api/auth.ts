@@ -36,7 +36,10 @@ export const authApi = {
     client.post<ApiResponse<{ accessToken: string; role: string }>>('/auth/mfa/verify', data),
 
   mfaSetup: () =>
-    client.post<ApiResponse<{ secret: string; qrCodePlaceholder: string }>>('/auth/mfa/setup'),
+    client.post<ApiResponse<{ secret: string; otpauthUrl: string; qrCode: string }>>('/auth/mfa/setup'),
+
+  mfaConfirm: (data: { code: string }) =>
+    client.post<ApiResponse<null>>('/auth/mfa/confirm', data),
 
   logout: () =>
     client.post<ApiResponse<null>>('/auth/logout'),

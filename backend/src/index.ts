@@ -9,6 +9,7 @@ import swaggerUi from 'swagger-ui-express';
 import http from 'http';
 import { initDb, closeDb, getPool } from './config/db';
 import { initRedis, closeRedis, isRedisReady } from './config/redis';
+import { initKafka, closeKafka, isKafkaReady } from './services/kafka.service';
 import { swaggerDefinition } from './config/swagger';
 import { corsHeaders, securityHeaders } from './middleware/securityHeaders';
 import { SeatLockService } from './services/lock.service';
@@ -230,6 +231,14 @@ async function startServer() {
       await startQueueWorkers();
     }
 
+    logger.info('Connecting to Kafka...');
+    await initKafka();
+    if (isKafkaReady()) {
+      logger.info('[Kafka] Producer ready — booking events will be published to Kafka topics');
+    } else {
+      logger.warn('[Kafka] Running without Kafka — set KAFKA_BROKERS env var to enable event streaming');
+    }
+
     const app = createApp();
     const server = http.createServer(app);
 
@@ -266,6 +275,7 @@ async function startServer() {
       closeLiveTracking();
       server.close(async () => {
         await stopQueueWorkers();
+        await closeKafka();
         await closeRedis();
         await closeDb();
         logger.info('Server shut down complete.');

@@ -5,12 +5,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { authApi } from '@/api/auth';
 import { useAuthStore } from '@/store/authStore';
-import { Train, Globe, Apple, Eye, EyeOff, X, User } from 'lucide-react';
+import { Train, Apple, Eye, EyeOff } from 'lucide-react';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -31,9 +32,7 @@ export default function Login() {
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
-
-  // Social Modal States
-  const [showSocialModal, setShowSocialModal] = useState<false | 'google' | 'apple'>(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   // 3D Tilt Card Motion Values
   const cardRef = useRef<HTMLDivElement>(null);
@@ -51,10 +50,8 @@ export default function Login() {
   const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!cardRef.current) return;
     const rect = cardRef.current.getBoundingClientRect();
-    const width = rect.width;
-    const height = rect.height;
-    const mouseX = event.clientX - rect.left - width / 2;
-    const mouseY = event.clientY - rect.top - height / 2;
+    const mouseX = event.clientX - rect.left - rect.width / 2;
+    const mouseY = event.clientY - rect.top - rect.height / 2;
     x.set(mouseX);
     y.set(mouseY);
   };
@@ -72,7 +69,7 @@ export default function Login() {
 
       if (body.status === 'mfa_required') {
         navigate('/login', { state: { mfaToken: (body as any).mfaToken, email: data.email }, replace: true });
-        toast.info('MFA code required');
+        toast.info('MFA code required — open your authenticator app');
         return;
       }
 
@@ -99,7 +96,7 @@ export default function Login() {
       if (body.status === 'success') {
         const successBody = body as any;
         setAuth({ id: 0, email: mfaState.email, role: successBody.role, mfaEnabled: true, createdAt: '' }, successBody.accessToken);
-        toast.success('MFA verified');
+        toast.success('MFA verified — welcome back!');
         navigate('/dashboard');
       }
     } catch (err: any) {
@@ -138,41 +135,33 @@ export default function Login() {
     }
   };
 
-  // Mock social profiles selector handler
-  const handleSocialSelect = async (email: string, name: string) => {
-    if (!showSocialModal) return;
-    setLoading(true);
+  // Real Google login — called with the ID token from Google's popup
+  const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
+    const idToken = credentialResponse.credential;
+    if (!idToken) { toast.error('Google sign-in failed — no credential received'); return; }
+    setGoogleLoading(true);
     try {
-      const response = await authApi.socialLogin({
-        provider: showSocialModal,
-        token: `mock-oauth-token-${showSocialModal}-${Date.now()}`,
-        email,
-        name,
-      });
+      const response = await authApi.socialLogin({ provider: 'google', token: idToken });
       if (response.data.status === 'success') {
-        setAuth({ id: 0, email, role: response.data.role, mfaEnabled: false, createdAt: '' }, response.data.accessToken);
-        toast.success(`${showSocialModal === 'google' ? 'Google' : 'Apple'} login successful!`);
-        setShowSocialModal(false);
+        setAuth(
+          { id: 0, email: (response.data as any).email || '', role: (response.data as any).role, mfaEnabled: false, createdAt: '' },
+          (response.data as any).accessToken
+        );
+        toast.success(`Welcome, ${(response.data as any).name || 'User'}! 👋`);
         navigate('/dashboard');
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Social login failed');
+      toast.error(err.response?.data?.message || 'Google login failed');
     } finally {
-      setLoading(false);
+      setGoogleLoading(false);
     }
   };
 
-  const mockProfiles = {
-    google: [
-      { name: 'Manoj Kumar', email: 'manoj.kumar@gmail.com' },
-      { name: 'Passenger Test', email: 'passenger@railflow.com' },
-    ],
-    apple: [
-      { name: 'Manoj Kumar (Apple)', email: 'manoj.kumar@icloud.com' },
-      { name: 'Apple Guest User', email: 'guest.apple@icloud.com' },
-    ]
+  const handleGoogleError = () => {
+    toast.error('Google sign-in was cancelled or failed. Please try again.');
   };
 
+  // MFA screen
   if (mfaState?.mfaToken) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center px-4">
@@ -180,13 +169,15 @@ export default function Login() {
           <div className="text-center space-y-2">
             <Train className="mx-auto text-[var(--color-primary)]" size={40} />
             <h1 className="text-2xl font-bold">Two-Factor Authentication</h1>
-            <p className="text-[var(--color-text-muted)] text-sm">Enter the 6-digit code from your authenticator app</p>
+            <p className="text-[var(--color-text-muted)] text-sm">
+              Enter the 6-digit code from <strong>Google Authenticator</strong> or <strong>Authy</strong>
+            </p>
           </div>
           <Card className="space-y-6">
             <form onSubmit={handleMfaSubmit} className="space-y-4">
               <Input
                 id="mfaCode"
-                label="MFA Code"
+                label="Authenticator Code"
                 type="text"
                 inputMode="numeric"
                 maxLength={6}
@@ -194,14 +185,14 @@ export default function Login() {
                 onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="123456"
               />
-              <Button type="submit" loading={loading} className="w-full">Verify</Button>
+              <Button type="submit" loading={loading} className="w-full">Verify Code</Button>
             </form>
             <div className="text-center">
               <button
                 onClick={() => navigate('/login', { replace: true })}
                 className="text-sm text-[var(--color-primary)] hover:underline cursor-pointer"
               >
-                Back to login
+                ← Back to login
               </button>
             </div>
           </Card>
@@ -245,58 +236,103 @@ export default function Login() {
             </button>
           </div>
 
-          {mode === 'email' ? (
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <Input id="email" label="Email Address" type="email" {...register('email')} error={errors.email?.message} placeholder="you@example.com" />
-              <div className="relative">
-                <Input id="password" label="Password" type={showPassword ? 'text' : 'password'} {...register('password')} error={errors.password?.message} placeholder="••••••••" />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-[38px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] cursor-pointer">
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-              <div className="flex justify-end">
-                <Link to="/forgot-password" className="text-xs text-[var(--color-primary)] hover:underline">Forgot password?</Link>
-              </div>
-              <Button type="submit" loading={loading} className="w-full">Sign In</Button>
-            </form>
-          ) : (
-            <div className="space-y-4">
-              <Input
-                label="Phone Number"
-                type="tel"
-                placeholder="9876543210"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-              />
-              {!otpSent ? (
-                <Button onClick={sendOtp} loading={otpLoading} className="w-full">Send OTP</Button>
-              ) : (
-                <div className="space-y-4">
-                  <Input
-                    label="OTP Code"
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="Enter OTP"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  />
-                  <Button onClick={verifyOtp} loading={loading} className="w-full">Verify & Login</Button>
-                  <button onClick={() => { setOtpSent(false); setOtp(''); }} className="w-full text-xs text-[var(--color-primary)] hover:underline cursor-pointer">
-                    Change phone number
+          <AnimatePresence mode="wait">
+            {mode === 'email' ? (
+              <motion.form
+                key="email-form"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                onSubmit={handleSubmit(onSubmit)}
+                className="space-y-4"
+              >
+                <Input id="email" label="Email Address" type="email" {...register('email')} error={errors.email?.message} placeholder="you@example.com" />
+                <div className="relative">
+                  <Input id="password" label="Password" type={showPassword ? 'text' : 'password'} {...register('password')} error={errors.password?.message} placeholder="••••••••" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-[38px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] cursor-pointer">
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
-              )}
-            </div>
-          )}
+                <div className="flex justify-end">
+                  <Link to="/forgot-password" className="text-xs text-[var(--color-primary)] hover:underline">Forgot password?</Link>
+                </div>
+                <Button type="submit" loading={loading} className="w-full">Sign In</Button>
+              </motion.form>
+            ) : (
+              <motion.div
+                key="phone-form"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                className="space-y-4"
+              >
+                <Input
+                  label="Phone Number"
+                  type="tel"
+                  placeholder="9876543210"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                />
+                {!otpSent ? (
+                  <Button onClick={sendOtp} loading={otpLoading} className="w-full">Send OTP</Button>
+                ) : (
+                  <div className="space-y-4">
+                    <Input
+                      label="OTP Code"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Enter OTP"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    />
+                    <Button onClick={verifyOtp} loading={loading} className="w-full">Verify &amp; Login</Button>
+                    <button onClick={() => { setOtpSent(false); setOtp(''); }} className="w-full text-xs text-[var(--color-primary)] hover:underline cursor-pointer">
+                      Change phone number
+                    </button>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="relative">
             <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-[var(--color-border)]" /></div>
             <div className="relative flex justify-center text-xs"><span className="bg-[var(--color-surface)] px-2 text-[var(--color-text-muted)]">or continue with</span></div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Button type="button" variant="outline" size="sm" onClick={() => setShowSocialModal('google')} className="cursor-pointer font-semibold"><Globe size={16} /> Google</Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => setShowSocialModal('apple')} className="cursor-pointer font-semibold"><Apple size={16} /> Apple</Button>
+          {/* Real Google Sign-In Button — uses VITE_GOOGLE_CLIENT_ID */}
+          <div className="space-y-3">
+            {googleLoading ? (
+              <div className="flex justify-center items-center h-10 gap-2 text-sm text-[var(--color-text-muted)]">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Signing in with Google…
+              </div>
+            ) : (
+              <div className="flex justify-center">
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={handleGoogleError}
+                  theme="filled_black"
+                  shape="pill"
+                  size="large"
+                  text="signin_with"
+                  useOneTap={false}
+                />
+              </div>
+            )}
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full cursor-pointer font-semibold opacity-60 cursor-not-allowed"
+              disabled
+            >
+              <Apple size={16} /> Apple (Coming Soon)
+            </Button>
           </div>
 
           <p className="text-center text-sm text-[var(--color-text-muted)]">
@@ -304,61 +340,6 @@ export default function Login() {
           </p>
         </Card>
       </motion.div>
-
-      {/* Social Popup Dialog Selector */}
-      <AnimatePresence>
-        {showSocialModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-4 relative"
-            >
-              <button
-                type="button"
-                onClick={() => setShowSocialModal(false)}
-                className="absolute right-4 top-4 text-[var(--color-text-muted)] hover:text-[var(--color-text)] cursor-pointer"
-              >
-                <X size={20} />
-              </button>
-
-              <div className="text-center space-y-1">
-                {showSocialModal === 'google' ? (
-                  <Globe className="mx-auto text-sky-400" size={32} />
-                ) : (
-                  <Apple className="mx-auto text-slate-100" size={32} />
-                )}
-                <h3 className="text-lg font-bold">
-                  Sign in with {showSocialModal === 'google' ? 'Google' : 'Apple'}
-                </h3>
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  Choose a mock account to continue simulation login
-                </p>
-              </div>
-
-              <div className="space-y-2 pt-2">
-                {mockProfiles[showSocialModal].map((profile) => (
-                  <button
-                    key={profile.email}
-                    type="button"
-                    onClick={() => handleSocialSelect(profile.email, profile.name)}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl border border-[var(--color-border)] hover:bg-slate-800/50 hover:border-[var(--color-primary)] transition-all cursor-pointer text-left"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-[var(--color-text)]">
-                      <User size={16} />
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold">{profile.name}</div>
-                      <div className="text-xs text-[var(--color-text-muted)]">{profile.email}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

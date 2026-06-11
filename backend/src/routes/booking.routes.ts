@@ -11,6 +11,11 @@ import { NotificationService } from '../services/notification.service';
 import { PdfService } from '../services/pdf.service';
 import { CircuitBreaker, SurgePricingService } from '../services/pricing.service';
 import { maskAadhaar } from '../config/crypto';
+import {
+  emitBookingConfirmed,
+  emitBookingCancelled,
+  emitSeatReleased,
+} from '../services/kafka.service';
 
 const router = Router();
 
@@ -632,16 +637,62 @@ router.post('/cancel/:pnr', authenticate, validate(pnrParamsSchema), async (req:
 
       await db.run('COMMIT;');
 
-      // Fire-and-forget notification
+      // 1. Notify the cancelling user
       NotificationService.send({
         userId: req.user.id,
         type: 'EMAIL',
         channel: req.user.email,
         subject: `Booking Cancelled - PNR: ${pnr}`,
-        body: `Your booking on ${train?.name || booking.train_number} (PNR: ${pnr}) has been cancelled.`,
+        body: `Your booking on ${train?.name || booking.train_number} (PNR: ${pnr}) has been cancelled. Any refund will be processed within 5-7 business days.`,
         referenceType: 'BOOKING',
         referenceId: pnr,
       });
+
+      // 2. Automatically promote the top waitlist entry for this train
+      (async () => {
+        try {
+          const nextWaitlist = await db.get(
+            `SELECT w.*, u.email AS user_email, u.phone AS user_phone
+             FROM booking_waitlist w
+             JOIN users u ON w.user_id = u.id
+             WHERE w.train_number = $1 AND w.status IN ('WAITLIST', 'RAC')
+             ORDER BY w.waitlist_number ASC
+             LIMIT 1`,
+            [booking.train_number]
+          );
+
+          if (nextWaitlist) {
+            // Promote: update status to CONFIRMED
+            await db.run(
+              "UPDATE booking_waitlist SET status = 'CONFIRMED', promoted_at = NOW() WHERE id = $1",
+              [nextWaitlist.id]
+            );
+
+            // Resequence remaining waitlist positions
+            await db.run(
+              `UPDATE booking_waitlist SET waitlist_number = waitlist_number - 1
+               WHERE train_number = $1 AND status IN ('WAITLIST', 'RAC') AND waitlist_number > $2`,
+              [booking.train_number, nextWaitlist.waitlist_number]
+            );
+
+            // Notify the promoted user
+            if (nextWaitlist.user_email) {
+              NotificationService.send({
+                userId: nextWaitlist.user_id,
+                type: 'EMAIL',
+                channel: nextWaitlist.user_email,
+                subject: `🎉 Great news! Your waitlist ticket is confirmed — PNR: ${nextWaitlist.pnr}`,
+                body: `A seat has become available on ${train?.name || booking.train_number}. Your waitlist booking (PNR: ${nextWaitlist.pnr}) has been CONFIRMED. Please complete payment within 30 minutes to secure your seat.`,
+                referenceType: 'BOOKING',
+                referenceId: nextWaitlist.pnr,
+              });
+            }
+          }
+        } catch (promotionErr: any) {
+          // Non-fatal: log but don't surface to the cancelling user
+          console.error('[WaitlistPromotion] Error promoting next waitlist entry:', promotionErr.message);
+        }
+      })();
 
       res.status(200).json({
         status: 'success',

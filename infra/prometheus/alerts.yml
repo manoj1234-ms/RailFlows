@@ -1,0 +1,79 @@
+groups:
+  - name: railflow-slo
+    interval: 30s
+    rules:
+      # ── Booking API SLO ──────────────────────────────────
+      - alert: BookingP99LatencyHigh
+        expr: histogram_quantile(0.99, rate(http_request_duration_ms_bucket{route=~"/api/v1/bookings.*"}[5m])) > 3000
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Booking API p99 latency > 3s"
+          description: "Booking endpoint p99 is {{ $value }}ms — breaching SLO"
+
+      - alert: BookingSuccessRateLow
+        expr: rate(http_requests_total{route=~"/api/v1/bookings/confirm", status_code="200"}[5m]) / rate(http_requests_total{route=~"/api/v1/bookings/confirm"}[5m]) < 0.95
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Booking success rate below 95%"
+          description: "Current rate: {{ $value | humanizePercentage }}"
+
+      # ── Payment ───────────────────────────────────────────
+      - alert: PaymentFailureRateHigh
+        expr: rate(http_requests_total{route=~"/api/v1/payments.*", status_code=~"4..|5.."}[5m]) / rate(http_requests_total{route=~"/api/v1/payments.*"}[5m]) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          team: payments
+        annotations:
+          summary: "Payment failure rate > 1%"
+          description: "Current failure rate: {{ $value | humanizePercentage }}"
+
+      # ── Queue Depth ───────────────────────────────────────
+      - alert: VirtualQueueDepthHigh
+        expr: railflow_queue_depth > 100000
+        for: 1m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Virtual queue depth > 100k"
+          description: "Queue has {{ $value }} entries — Tatkal surge detected"
+
+      # ── Redis Lock Contention ─────────────────────────────
+      - alert: SeatLockContentionHigh
+        expr: rate(railflow_seat_lock_failures_total[5m]) / rate(railflow_seat_lock_attempts_total[5m]) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Seat lock contention > 30%"
+          description: "{{ $value | humanizePercentage }} of lock attempts failing"
+
+      # ── System Uptime SLO ─────────────────────────────────
+      - alert: ServiceDown
+        expr: up{job="railflow-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "RailFlow backend is DOWN"
+          description: "Backend has been unreachable for > 1 minute"
+
+      # ── JWT Anomaly ───────────────────────────────────────
+      - alert: HighFailedLoginRate
+        expr: rate(railflow_auth_failures_total[5m]) > 50
+        for: 2m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High failed login rate — possible brute force"
+          description: "{{ $value }} failures/sec in last 5 minutes"

@@ -1,0 +1,265 @@
+{
+  "__inputs": [],
+  "__elements": {},
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.3.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "gauge", "name": "Gauge", "version": "" },
+    { "type": "panel", "id": "table", "name": "Table", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "description": "RailFlow — Booking Pipeline, Queue Health, Redis, Payment, Security overview",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "🚂 System Overview",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null },
+            { "color": "green", "value": 1 }
+          ]},
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "auto" },
+      "title": "Backend Status",
+      "type": "stat",
+      "targets": [{ "expr": "up{job=\"railflow-backend\"}", "legendFormat": "Status" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "gridPos": { "h": 4, "w": 5, "x": 4, "y": 1 },
+      "id": 2,
+      "title": "Request Rate (req/s)",
+      "type": "stat",
+      "options": { "reduceOptions": { "calcs": ["mean"] } },
+      "targets": [{ "expr": "sum(rate(http_requests_total[1m]))", "legendFormat": "req/s" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 500 },
+            { "color": "red", "value": 2000 }
+          ]}
+        }
+      },
+      "gridPos": { "h": 4, "w": 5, "x": 9, "y": 1 },
+      "id": 3,
+      "title": "API p99 Latency",
+      "type": "gauge",
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "minVizWidth": 75, "minVizHeight": 75 },
+      "targets": [{ "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_ms_bucket[5m])) by (le))", "legendFormat": "p99" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 10000 },
+            { "color": "red", "value": 100000 }
+          ]}
+        }
+      },
+      "gridPos": { "h": 4, "w": 5, "x": 14, "y": 1 },
+      "id": 4,
+      "title": "Virtual Queue Depth",
+      "type": "stat",
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "railflow_queue_depth", "legendFormat": "Queue Size" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null },
+            { "color": "yellow", "value": 0.9 },
+            { "color": "green", "value": 0.95 }
+          ]}
+        }
+      },
+      "gridPos": { "h": 4, "w": 5, "x": 19, "y": 1 },
+      "id": 5,
+      "title": "Booking Success Rate",
+      "type": "gauge",
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "rate(http_requests_total{route=~\"/api/v1/bookings/confirm\",status_code=\"200\"}[5m]) / rate(http_requests_total{route=~\"/api/v1/bookings/confirm\"}[5m])", "legendFormat": "Success %" }]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "📈 Request Latency",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 10,
+      "title": "API Latency Percentiles",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_ms_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_ms_bucket[5m])) by (le))", "legendFormat": "p99" },
+        { "expr": "histogram_quantile(0.999, sum(rate(http_request_duration_ms_bucket[5m])) by (le))", "legendFormat": "p99.9" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 11,
+      "title": "Request Rate by Route",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum(rate(http_requests_total[1m])) by (route)", "legendFormat": "{{route}}" }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 102,
+      "title": "🔒 Seat Locking & Booking",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "id": 20,
+      "title": "Seat Lock Attempts vs Successes",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "rate(railflow_seat_lock_attempts_total[1m])", "legendFormat": "Attempts" },
+        { "expr": "rate(railflow_seat_lock_attempts_total[1m]) - rate(railflow_seat_lock_failures_total[1m])", "legendFormat": "Successes" },
+        { "expr": "rate(railflow_seat_lock_failures_total[1m])", "legendFormat": "Failures" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "id": 21,
+      "title": "Booking Confirmations (Saga Outcomes)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "rate(railflow_bookings_confirmed_total[1m])", "legendFormat": "Confirmed" },
+        { "expr": "rate(railflow_bookings_failed_total[1m])", "legendFormat": "Failed" },
+        { "expr": "rate(railflow_bookings_refunded_total[1m])", "legendFormat": "Refunded" }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 103,
+      "title": "💳 Payment Metrics",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 0.005 },
+            { "color": "red", "value": 0.01 }
+          ]}
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 24 },
+      "id": 30,
+      "title": "Payment Failure Rate",
+      "type": "gauge",
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "rate(railflow_payment_failures_total[5m]) / rate(railflow_payment_attempts_total[5m])", "legendFormat": "Failure %" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 24 },
+      "id": 31,
+      "title": "Avg Payment Processing Time",
+      "type": "stat",
+      "options": { "reduceOptions": { "calcs": ["mean"] } },
+      "targets": [{ "expr": "avg(railflow_payment_duration_seconds)", "legendFormat": "Avg" }]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 },
+      "id": 104,
+      "title": "🛡️ Security & Auth",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "id": 40,
+      "title": "Auth Events (Login / OTP / MFA / Social)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "rate(railflow_auth_logins_total[1m])", "legendFormat": "Logins" },
+        { "expr": "rate(railflow_auth_failures_total[1m])", "legendFormat": "Failures" },
+        { "expr": "rate(railflow_auth_lockouts_total[1m])", "legendFormat": "Lockouts" },
+        { "expr": "rate(railflow_auth_mfa_verifications_total[1m])", "legendFormat": "MFA Verifies" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "id": 41,
+      "title": "Rate Limiter Hits by Route",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "rate(http_requests_total{status_code=\"429\"}[1m]) by (route)", "legendFormat": "429 {{route}}" }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["railflow", "booking", "slo", "security"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "Asia/Kolkata",
+  "title": "RailFlow — Platform Overview",
+  "uid": "railflow-overview",
+  "version": 1
+}

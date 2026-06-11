@@ -1,0 +1,269 @@
+# RailFlow — Infrastructure Stack (Phase 3)
+# Run with: docker-compose -f docker-compose.infra.yml up -d
+#
+# Includes:
+#   - Redis 3-node Cluster (M1/M2/M3 + S1/S2/S3)
+#   - Apache Kafka 3.x + Zookeeper + Schema Registry + Kafka UI
+#   - Prometheus + Grafana (pre-wired dashboards)
+#   - Mailhog (SMTP dev trap)
+#   - OpenTelemetry Collector
+#
+# Ports exposed:
+#   Redis Cluster: 7001-7006
+#   Kafka:         9092 (broker), 9093 (controller), 8081 (schema registry)
+#   Kafka UI:      8080
+#   Prometheus:    9090
+#   Grafana:       3000  (admin / railflow)
+#   Mailhog:       1025 (SMTP), 8025 (Web UI)
+#   OTel:          4317 (gRPC), 4318 (HTTP)
+
+version: "3.9"
+
+networks:
+  railflow-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ─────────────────────────────────────────────
+# Redis Cluster: 3 primaries + 3 replicas
+# Each node uses --cluster-enabled yes
+# cluster-create runs once via init container
+# ─────────────────────────────────────────────
+x-redis-base: &redis-base
+  image: redis:7-alpine
+  networks:
+    - railflow-net
+  restart: unless-stopped
+  command: >
+    redis-server
+    --cluster-enabled yes
+    --cluster-config-file nodes.conf
+    --cluster-node-timeout 5000
+    --appendonly yes
+    --protected-mode no
+
+services:
+  # ── Redis Cluster Nodes ──────────────────────
+  redis-1:
+    <<: *redis-base
+    ports: ["7001:6379"]
+    volumes:
+      - redis1data:/data
+
+  redis-2:
+    <<: *redis-base
+    ports: ["7002:6379"]
+    volumes:
+      - redis2data:/data
+
+  redis-3:
+    <<: *redis-base
+    ports: ["7003:6379"]
+    volumes:
+      - redis3data:/data
+
+  redis-4:
+    <<: *redis-base
+    ports: ["7004:6379"]
+    volumes:
+      - redis4data:/data
+
+  redis-5:
+    <<: *redis-base
+    ports: ["7005:6379"]
+    volumes:
+      - redis5data:/data
+
+  redis-6:
+    <<: *redis-base
+    ports: ["7006:6379"]
+    volumes:
+      - redis6data:/data
+
+  # One-shot init container: creates the cluster topology
+  redis-cluster-init:
+    image: redis:7-alpine
+    networks:
+      - railflow-net
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+      - redis-4
+      - redis-5
+      - redis-6
+    command: >
+      sh -c "
+        sleep 5 &&
+        redis-cli --cluster create
+          redis-1:6379 redis-2:6379 redis-3:6379
+          redis-4:6379 redis-5:6379 redis-6:6379
+          --cluster-replicas 1
+          --cluster-yes
+      "
+    restart: "no"
+
+  # ── Zookeeper (required by Kafka) ─────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    networks:
+      - railflow-net
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zkdata:/var/lib/zookeeper/data
+      - zklog:/var/lib/zookeeper/log
+    restart: unless-stopped
+
+  # ── Kafka Broker ──────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    networks:
+      - railflow-net
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,INTERNAL://0.0.0.0:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_NUM_PARTITIONS: 3
+      # Pre-create RailFlow topics
+      KAFKA_CREATE_TOPICS: >
+        booking.confirmed:3:1,
+        booking.cancelled:3:1,
+        payment.completed:3:1,
+        payment.failed:3:1,
+        notification.email:3:1,
+        notification.sms:3:1,
+        seat.released:3:1,
+        ai.demand.signal:1:1,
+        booking.confirmed.dlq:1:1,
+        payment.failed.dlq:1:1
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    restart: unless-stopped
+    healthcheck:
+      test: kafka-topics --bootstrap-server localhost:9092 --list
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Schema Registry ───────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    networks:
+      - railflow-net
+    ports:
+      - "8081:8081"
+    depends_on:
+      - kafka
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    restart: unless-stopped
+
+  # ── Kafka UI (Provectus) ──────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    networks:
+      - railflow-net
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka
+      - schema-registry
+    environment:
+      KAFKA_CLUSTERS_0_NAME: railflow-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      DYNAMIC_CONFIG_ENABLED: "true"
+    restart: unless-stopped
+
+  # ── Prometheus ────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    networks:
+      - railflow-net
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheusdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+
+  # ── Grafana ───────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.3.0
+    networks:
+      - railflow-net
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: railflow
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3000
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/railflow-overview.json
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+
+  # ── OpenTelemetry Collector ───────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.97.0
+    networks:
+      - railflow-net
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # OTel metrics
+    volumes:
+      - ./infra/otel/otel-collector.yml:/etc/otel-collector-config.yaml:ro
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    restart: unless-stopped
+
+  # ── Mailhog (SMTP dev trap) ───────────────────
+  mailhog:
+    image: mailhog/mailhog:latest
+    networks:
+      - railflow-net
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+
+volumes:
+  redis1data:
+  redis2data:
+  redis3data:
+  redis4data:
+  redis5data:
+  redis6data:
+  zkdata:
+  zklog:
+  kafkadata:
+  prometheusdata:
+  grafanadata:

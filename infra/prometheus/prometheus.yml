@@ -1,0 +1,48 @@
+# Prometheus scrape configuration for RailFlow
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: "local"
+    project: "railflow"
+
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+scrape_configs:
+  # ── RailFlow Backend ──────────────────────────────────
+  - job_name: "railflow-backend"
+    static_configs:
+      - targets: ["host.docker.internal:5000"]
+    metrics_path: "/metrics"
+    scrape_interval: 10s
+
+  # ── Prometheus self-monitoring ────────────────────────
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── OTel Collector ────────────────────────────────────
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8888"]
+
+  # ── Redis nodes ───────────────────────────────────────
+  - job_name: "redis"
+    static_configs:
+      - targets:
+          - "redis-1:6379"
+          - "redis-2:6379"
+          - "redis-3:6379"
+    metrics_path: "/metrics"
+
+  # ── Kafka (JMX exporter if enabled) ──────────────────
+  - job_name: "kafka"
+    static_configs:
+      - targets: ["kafka:9092"]
+    metrics_path: "/metrics"

@@ -1,13 +1,19 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
-import { Train, Ticket, Wallet, Bell, Search, Star, TrendingUp, Clock } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Train, Ticket, Wallet, Bell, Search, Star, TrendingUp,
+  Clock, ShieldCheck, MapPin, Radio,
+} from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { bookingsApi } from '@/api/bookings';
 import { useAuthStore } from '@/store/authStore';
 import { formatDate, pnrColor } from '@/utils/format';
+import MfaSetupModal from './MfaSetupModal';
+import LiveTrackingWidget from './LiveTrackingWidget';
 
 const quickActions = [
   { icon: Search, label: 'Book a Train', to: '/search', color: 'from-[var(--color-primary)] to-[var(--color-secondary)]' },
@@ -18,6 +24,11 @@ const quickActions = [
 
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
+  const [showMfa, setShowMfa] = useState(false);
+  const [mfaActive, setMfaActive] = useState(false);
+  const [trackTrain, setTrackTrain] = useState('');
+  const [showTracking, setShowTracking] = useState(false);
+
   const { data: bookingsRes, isLoading } = useQuery({
     queryKey: ['my-bookings'],
     queryFn: () => bookingsApi.getHistory({ page: 1, limit: 5 }),
@@ -50,6 +61,66 @@ export default function Dashboard() {
             </Link>
           </motion.div>
         ))}
+      </div>
+
+      {/* Security & Live Tracking row */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* MFA Security Card */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
+          <Card className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${mfaActive ? 'bg-emerald-500/20' : 'bg-slate-700/50'}`}>
+                <ShieldCheck size={20} className={mfaActive ? 'text-emerald-400' : 'text-[var(--color-text-muted)]'} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm">Two-Factor Authentication</h3>
+                <p className={`text-xs ${mfaActive ? 'text-emerald-400' : 'text-[var(--color-text-muted)]'}`}>
+                  {mfaActive ? '✓ MFA is active' : 'Not enabled — your account is at risk'}
+                </p>
+              </div>
+            </div>
+            {!mfaActive && (
+              <Button
+                size="sm"
+                onClick={() => setShowMfa(true)}
+                className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500"
+              >
+                <ShieldCheck size={14} /> Enable MFA Now
+              </Button>
+            )}
+          </Card>
+        </motion.div>
+
+        {/* Live Train Tracking Card */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+          <Card className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-sky-500/20 flex items-center justify-center">
+                <Radio size={20} className="text-sky-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm">Live Train Tracker</h3>
+                <p className="text-xs text-[var(--color-text-muted)]">Real-time station updates via WebSocket</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Enter train number…"
+                value={trackTrain}
+                onChange={(e) => setTrackTrain(e.target.value.toUpperCase())}
+                className="flex-1 px-3 py-1.5 text-sm rounded-lg bg-slate-800/60 border border-[var(--color-border)] text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)]"
+              />
+              <Button
+                size="sm"
+                onClick={() => { if (trackTrain) setShowTracking(true); }}
+                disabled={!trackTrain}
+              >
+                <MapPin size={14} /> Track
+              </Button>
+            </div>
+          </Card>
+        </motion.div>
       </div>
 
       {/* Upcoming Trips */}
@@ -121,6 +192,25 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Modals */}
+      <AnimatePresence>
+        {showMfa && (
+          <MfaSetupModal
+            onClose={() => setShowMfa(false)}
+            onActivated={() => { setMfaActive(true); setShowMfa(false); }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showTracking && trackTrain && (
+          <LiveTrackingWidget
+            trainNumber={trackTrain}
+            onClose={() => setShowTracking(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
