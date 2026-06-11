@@ -11,8 +11,10 @@ RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 appuser
 COPY package*.json ./
 RUN npm install --omit=dev --legacy-peer-deps
+RUN rm -rf ./dist
 COPY --from=builder /app/dist ./dist
 COPY --chown=appuser:nodejs .env.production .env
+RUN mkdir -p logs && chown appuser:nodejs logs
 USER appuser
 EXPOSE 5000
 ENV NODE_ENV=production
