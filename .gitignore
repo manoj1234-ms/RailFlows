@@ -67,3 +67,13 @@ alloc_out.txt
 alloc_res.txt
 C*alloc_res.txt
 nul
+
+# Project requirement docs (not code)
+documents require/
+ADR.md
+AGENTS.md
+API_REFERENCE.md
+IMPROVEMENTS.md
+SYSTEM_DESIGN.md
+k6_load_test.js
+verify-and-merge.ps1

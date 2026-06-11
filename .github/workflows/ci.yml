@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, test, develop]
   pull_request:
-    branches: [main, test]
+    branches: [main, test, develop]
 
 env:
   NODE_VERSION: "22"
