@@ -78,7 +78,7 @@ jobs:
           JWT_REFRESH_SECRET: test_refresh_secret
 
   build:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
     needs: [lint, test]
     defaults:
