@@ -24,6 +24,10 @@ import logger from '../utils/logger';
 
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'localhost:9092').split(',');
 const CLIENT_ID = process.env.KAFKA_CLIENT_ID || 'railflow-backend';
+const KAFKA_SSL = process.env.KAFKA_SSL === 'true';
+const KAFKA_SASL_USERNAME = process.env.KAFKA_SASL_USERNAME || '';
+const KAFKA_SASL_PASSWORD = process.env.KAFKA_SASL_PASSWORD || '';
+const KAFKA_SASL_MECHANISM = process.env.KAFKA_SASL_MECHANISM || 'plain';
 
 let kafka: Kafka | null = null;
 let producer: Producer | null = null;
@@ -110,7 +114,7 @@ export async function initKafka(): Promise<void> {
   }
 
   try {
-    kafka = new Kafka({
+    const kafkaConfig: any = {
       clientId: CLIENT_ID,
       brokers: KAFKA_BROKERS,
       logLevel: logLevel.WARN,
@@ -118,7 +122,18 @@ export async function initKafka(): Promise<void> {
         initialRetryTime: 300,
         retries: 5,
       },
-    });
+    };
+
+    if (KAFKA_SSL) kafkaConfig.ssl = true;
+    if (KAFKA_SASL_USERNAME && KAFKA_SASL_PASSWORD) {
+      kafkaConfig.sasl = {
+        mechanism: KAFKA_SASL_MECHANISM as any,
+        username: KAFKA_SASL_USERNAME,
+        password: KAFKA_SASL_PASSWORD,
+      };
+    }
+
+    kafka = new Kafka(kafkaConfig);
 
     producer = kafka.producer({
       allowAutoTopicCreation: true,
