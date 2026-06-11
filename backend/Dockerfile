@@ -5,11 +5,11 @@ RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 appuser
 
 COPY package*.json tsconfig.json ./
-RUN npm install --omit=dev --legacy-peer-deps
+RUN npm install --legacy-peer-deps
 
 COPY src/ ./src/
 RUN test -n "$RAILWAY_GIT_COMMIT_SHA" && echo "Deploy: $RAILWAY_GIT_COMMIT_SHA" || echo "Local build"
-RUN npx tsc && rm -rf ./src
+RUN npx tsc && rm -rf ./src && npm prune --omit=dev --legacy-peer-deps
 
 RUN mkdir -p logs && chown appuser:nodejs logs
 COPY --chown=appuser:nodejs .env.production .env
