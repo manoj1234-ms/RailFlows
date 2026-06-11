@@ -3,7 +3,7 @@ import pino from 'pino';
 const isProduction = process.env.NODE_ENV === 'production';
 const logFile = process.env.LOG_FILE || 'logs/railflow.log';
 
-const transport = isProduction
+const transport = isProduction && !!process.env.LOG_FILE
   ? { target: 'pino/file', options: { destination: logFile, mkdir: true } }
   : { target: 'pino/file', options: { destination: 1 } };
 
