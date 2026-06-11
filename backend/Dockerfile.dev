@@ -2,7 +2,7 @@ FROM node:24-alpine
 WORKDIR /app
 RUN apk add --no-cache inotify-tools
 COPY package*.json ./
-RUN npm ci
+RUN npm install --legacy-peer-deps
 COPY tsconfig.json ./
 COPY src/ ./src/
 EXPOSE 5000 9229
