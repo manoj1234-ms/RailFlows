@@ -244,20 +244,33 @@ async function startServer() {
       logger.warn({ msg: 'seats TIMESTAMPTZ migration skipped (already applied or table missing)', error: e.message });
     }
 
+    logger.info('Initializing DB pool...');
     await initDb();
+    logger.info('DB pool initialized.');
 
     logger.info('Connecting to Redis...');
-    await initRedis();
-    if (isRedisReady()) {
-      await startQueueWorkers();
+    try {
+      await initRedis();
+      if (isRedisReady()) {
+        logger.info('Redis connected.');
+        await startQueueWorkers();
+      } else {
+        logger.warn('[Redis] Not ready — queue workers skipped.');
+      }
+    } catch (e: any) {
+      logger.warn({ msg: '[Redis] Connection failed — continuing without Redis', error: e.message });
     }
 
     logger.info('Connecting to Kafka...');
-    await initKafka();
-    if (isKafkaReady()) {
-      logger.info('[Kafka] Producer ready — booking events will be published to Kafka topics');
-    } else {
-      logger.warn('[Kafka] Running without Kafka — set KAFKA_BROKERS env var to enable event streaming');
+    try {
+      await initKafka();
+      if (isKafkaReady()) {
+        logger.info('[Kafka] Producer ready — booking events will be published to Kafka topics');
+      } else {
+        logger.warn('[Kafka] Running without Kafka — set KAFKA_BROKERS env var to enable event streaming');
+      }
+    } catch (e: any) {
+      logger.warn({ msg: '[Kafka] Connection failed — continuing without Kafka', error: e.message });
     }
 
     // Start seat pre-warm cache daemon (non-blocking)
@@ -346,8 +359,12 @@ async function startServer() {
     });
 
     return server;
-  } catch (error) {
-    logger.error({ msg: 'Fatal: Failed to start RailFlow API Server', error });
+  } catch (error: any) {
+    logger.error({
+      msg: 'Fatal: Failed to start RailFlow API Server',
+      error: error?.message || error,
+      stack: error?.stack,
+    });
     process.exit(1);
   }
 }
