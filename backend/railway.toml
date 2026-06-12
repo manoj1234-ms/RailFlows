@@ -3,11 +3,11 @@
 # Root Directory: backend
 
 [build]
-  builder = "NIXPACKS"
-  buildCommand = "npm install --legacy-peer-deps && npm run build"
-  watchPatterns = ["src/**"]
+  builder = "DOCKERFILE"
+  dockerfilePath = "Dockerfile"
 
 [deploy]
   healthcheckPath = "/health"
-  healthcheckTimeout = 100
-  restartPolicyType = "always"
+  healthcheckTimeout = 300
+  restartPolicyType = "on_failure"
+  restartPolicyMaxRetries = 3
