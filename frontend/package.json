@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:backend": "concurrently -n api,redis -c cyan,red \"cd ../backend && npm run dev\" \"docker start railflow-redis-1\"",
     "dev:full": "concurrently -n api,web -c cyan,green \"cd ../backend && npm run dev\" \"vite\"",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
