@@ -219,8 +219,12 @@ async function startServer() {
   try {
     const pool = getPool();
     logger.info('Running database migrations...');
-    await runMigrations(pool);
-    logger.info('Database migrations complete.');
+    try {
+      await runMigrations(pool);
+      logger.info('Database migrations complete.');
+    } catch (e: any) {
+      logger.error({ msg: '[Migrations] Failed — continuing startup anyway', error: e.message, stack: e.stack });
+    }
 
     try {
       await pool.query('DELETE FROM queue_tokens');
@@ -245,8 +249,12 @@ async function startServer() {
     }
 
     logger.info('Initializing DB pool...');
-    await initDb();
-    logger.info('DB pool initialized.');
+    try {
+      await initDb();
+      logger.info('DB pool initialized.');
+    } catch (e: any) {
+      logger.warn({ msg: '[DB] initDb failed (non-fatal, continuing)', error: e.message });
+    }
 
     logger.info('Connecting to Redis...');
     try {
