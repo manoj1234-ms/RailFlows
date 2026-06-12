@@ -215,174 +215,139 @@ export function createApp() {
   return app;
 }
 
-async function startServer() {
+async function runBackgroundInit() {
+  const pool = getPool();
+
+  // Migrations
   try {
-    const pool = getPool();
     logger.info('Running database migrations...');
-    try {
-      await runMigrations(pool);
-      logger.info('Database migrations complete.');
-    } catch (e: any) {
-      logger.error({ msg: '[Migrations] Failed — continuing startup anyway', error: e.message, stack: e.stack });
-    }
+    await runMigrations(pool);
+    logger.info('Database migrations complete.');
+  } catch (e: any) {
+    logger.error({ msg: '[Migrations] Failed', error: e.message });
+  }
 
-    try {
-      await pool.query('DELETE FROM queue_tokens');
-      logger.info('Cleared stale queue tokens.');
-    } catch (e: any) {
-      logger.warn({ msg: 'Could not clear queue_tokens (table may not exist yet)', error: e.message });
-    }
+  // Legacy inline migrations (safe, idempotent)
+  try { await pool.query('DELETE FROM queue_tokens'); logger.info('Cleared stale queue tokens.'); } catch { }
+  try { await pool.query('ALTER TABLE queue_tokens ALTER COLUMN booking_window_expires_at TYPE TIMESTAMPTZ'); } catch { }
+  try { await pool.query('ALTER TABLE queue_tokens ALTER COLUMN created_at TYPE TIMESTAMPTZ'); } catch { }
+  try { await pool.query('ALTER TABLE seats ALTER COLUMN lock_expires_at TYPE TIMESTAMPTZ'); } catch { }
 
-    try {
-      await pool.query('ALTER TABLE queue_tokens ALTER COLUMN booking_window_expires_at TYPE TIMESTAMPTZ');
-      await pool.query('ALTER TABLE queue_tokens ALTER COLUMN created_at TYPE TIMESTAMPTZ');
-      logger.info('Migrated queue_tokens timestamps to TIMESTAMPTZ.');
-    } catch (e: any) {
-      logger.warn({ msg: 'queue_tokens TIMESTAMPTZ migration skipped (already applied or table missing)', error: e.message });
-    }
-
-    try {
-      await pool.query('ALTER TABLE seats ALTER COLUMN lock_expires_at TYPE TIMESTAMPTZ');
-      logger.info('Migrated seats.lock_expires_at to TIMESTAMPTZ.');
-    } catch (e: any) {
-      logger.warn({ msg: 'seats TIMESTAMPTZ migration skipped (already applied or table missing)', error: e.message });
-    }
-
+  // initDb (column migrations + seeding)
+  try {
     logger.info('Initializing DB pool...');
-    try {
-      await initDb();
-      logger.info('DB pool initialized.');
-    } catch (e: any) {
-      logger.warn({ msg: '[DB] initDb failed (non-fatal, continuing)', error: e.message });
-    }
+    await initDb();
+    logger.info('DB pool initialized.');
+  } catch (e: any) {
+    logger.warn({ msg: '[DB] initDb failed (non-fatal)', error: e.message });
+  }
 
+  // Redis
+  try {
     logger.info('Connecting to Redis...');
-    try {
-      await initRedis();
-      if (isRedisReady()) {
-        logger.info('Redis connected.');
-        await startQueueWorkers();
-      } else {
-        logger.warn('[Redis] Not ready — queue workers skipped.');
-      }
-    } catch (e: any) {
-      logger.warn({ msg: '[Redis] Connection failed — continuing without Redis', error: e.message });
+    await initRedis();
+    if (isRedisReady()) {
+      logger.info('Redis connected.');
+      await startQueueWorkers();
+    } else {
+      logger.warn('[Redis] Not ready — queue workers skipped.');
     }
+  } catch (e: any) {
+    logger.warn({ msg: '[Redis] Connection failed — continuing without Redis', error: e.message });
+  }
 
+  // Kafka
+  try {
     logger.info('Connecting to Kafka...');
-    try {
-      await initKafka();
-      if (isKafkaReady()) {
-        logger.info('[Kafka] Producer ready — booking events will be published to Kafka topics');
-      } else {
-        logger.warn('[Kafka] Running without Kafka — set KAFKA_BROKERS env var to enable event streaming');
-      }
-    } catch (e: any) {
-      logger.warn({ msg: '[Kafka] Connection failed — continuing without Kafka', error: e.message });
-    }
-
-    // Start seat pre-warm cache daemon (non-blocking)
-    startSeatWarmer(getPool());
-
-    // Start partition maintainer (creates next month/year partitions daily)
-    startPartitionMaintainer(getPool());
-
-    // Start Kafka consumer lag monitor
+    await initKafka();
     if (isKafkaReady()) {
+      logger.info('[Kafka] Producer ready.');
       const { startLagMonitor } = await import('./services/kafka.service');
       startLagMonitor(['railflow-notifications', 'railflow-seat-cache', 'railflow-loyalty']);
+    } else {
+      logger.warn('[Kafka] Running without Kafka.');
     }
-
-    const app = createApp();
-    const server = http.createServer(app);
-
-    setupLiveTracking(server);
-
-    server.listen(PORT, () => {
-      const workerTag = cluster.isWorker ? `[Worker ${cluster.worker?.id}]` : '[Master]';
-      logger.info(`${workerTag} [RailFlow] Server started on http://localhost:${PORT}`);
-      logger.info(`Swagger docs at http://localhost:${PORT}/api/docs`);
-      logger.info(`WebSocket live tracking at ws://localhost:${PORT}/ws/live-tracking`);
-      logger.info(`Prometheus metrics at http://localhost:${PORT}/metrics`);
-
-      setInterval(async () => {
-        try {
-          const cleaned = await SeatLockService.cleanupExpiredLocks();
-          if (cleaned > 0) {
-            logger.info(`[SeatLock Engine] Released ${cleaned} expired seat locks.`);
-          }
-        } catch (e: any) {
-          logger.error({ msg: '[SeatLock Engine] Background cleanup failed', error: e.message });
-        }
-      }, 10 * 1000);
-
-      setInterval(() => {
-        const cleaned = cache.cleanupExpired();
-        if (cleaned > 0) {
-          logger.info(`[Cache Engine] Cleaned ${cleaned} expired cache entries.`);
-        }
-      }, 60 * 1000);
-
-      setInterval(async () => {
-        try {
-          await NotificationService.processRetryQueue();
-        } catch (e: any) {
-          logger.error({ msg: '[Notification] Retry worker error', error: e.message });
-        }
-      }, 5 * 60 * 1000); // every 5 minutes
-    });
-
-    const shutdown = async (signal: string) => {
-      logger.info(`Received ${signal}. Shutting down gracefully...`);
-      await shutdownOtel();
-      stopSeatWarmer();
-      stopPartitionMaintainer();
-      closeLiveTracking();
-
-
-      server.close(async () => {
-        await stopQueueWorkers();
-        await closeKafka();
-        await closeRedis();
-        await closeDb();
-        logger.info('Server shut down complete.');
-        process.exit(0);
-      });
-      setTimeout(() => {
-        logger.error('Forced shutdown after timeout.');
-        process.exit(1);
-      }, 15000);
-    };
-
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
-
-    process.on('uncaughtException', (err) => {
-      logger.error({ msg: 'Uncaught exception', err });
-      process.exit(1);
-    });
-
-    process.on('unhandledRejection', (reason) => {
-      logger.error({ msg: 'Unhandled rejection', reason });
-    });
-
-    return server;
-  } catch (error: any) {
-    logger.error({
-      msg: 'Fatal: Failed to start RailFlow API Server',
-      error: error?.message || error,
-      stack: error?.stack,
-    });
-    process.exit(1);
+  } catch (e: any) {
+    logger.warn({ msg: '[Kafka] Connection failed — continuing without Kafka', error: e.message });
   }
+
+  // Background daemons
+  try { startSeatWarmer(getPool()); } catch { }
+  try { startPartitionMaintainer(getPool()); } catch { }
+
+  logger.info('[RailFlow] Background initialization complete.');
+}
+
+async function startServer() {
+  // ── Start HTTP server FIRST so healthcheck passes immediately ──────────────
+  const app = createApp();
+  const server = http.createServer(app);
+
+  try { setupLiveTracking(server); } catch (e: any) {
+    logger.warn({ msg: '[WS] Live tracking setup failed (non-fatal)', error: e.message });
+  }
+
+  server.listen(PORT, () => {
+    const workerTag = cluster.isWorker ? `[Worker ${cluster.worker?.id}]` : '[Master]';
+    logger.info(`${workerTag} [RailFlow] Server started on http://localhost:${PORT}`);
+    logger.info(`Swagger docs at http://localhost:${PORT}/api/docs`);
+    logger.info(`Prometheus metrics at http://localhost:${PORT}/metrics`);
+
+    setInterval(async () => {
+      try {
+        const cleaned = await SeatLockService.cleanupExpiredLocks();
+        if (cleaned > 0) logger.info(`[SeatLock Engine] Released ${cleaned} expired seat locks.`);
+      } catch (e: any) {
+        logger.error({ msg: '[SeatLock Engine] Background cleanup failed', error: e.message });
+      }
+    }, 10 * 1000);
+
+    setInterval(() => {
+      const cleaned = cache.cleanupExpired();
+      if (cleaned > 0) logger.info(`[Cache Engine] Cleaned ${cleaned} expired cache entries.`);
+    }, 60 * 1000);
+
+    setInterval(async () => {
+      try { await NotificationService.processRetryQueue(); } catch (e: any) {
+        logger.error({ msg: '[Notification] Retry worker error', error: e.message });
+      }
+    }, 5 * 60 * 1000);
+  });
+
+  const shutdown = async (signal: string) => {
+    logger.info(`Received ${signal}. Shutting down gracefully...`);
+    try { await shutdownOtel(); } catch { }
+    try { stopSeatWarmer(); } catch { }
+    try { stopPartitionMaintainer(); } catch { }
+    try { closeLiveTracking(); } catch { }
+    server.close(async () => {
+      try { await stopQueueWorkers(); } catch { }
+      try { await closeKafka(); } catch { }
+      try { await closeRedis(); } catch { }
+      try { await closeDb(); } catch { }
+      logger.info('Server shut down complete.');
+      process.exit(0);
+    });
+    setTimeout(() => { logger.error('Forced shutdown after timeout.'); process.exit(1); }, 15000);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('uncaughtException', (err) => { logger.error({ msg: 'Uncaught exception', err }); });
+  process.on('unhandledRejection', (reason) => { logger.error({ msg: 'Unhandled rejection', reason }); });
+
+  // ── Run all heavy init in background — NEVER blocks server startup ──────────
+  runBackgroundInit().catch((e) => {
+    logger.error({ msg: '[Init] Background init error', error: e?.message });
+  });
+
+  return server;
 }
 
 if (process.env.NODE_ENV !== 'test') {
   if (isClusterMode && cluster.isPrimary) {
     logger.info(`[Cluster Master] Forking ${cpuCount} workers...`);
-    for (let i = 0; i < cpuCount; i++) {
-      cluster.fork();
-    }
+    for (let i = 0; i < cpuCount; i++) cluster.fork();
     cluster.on('exit', (worker, code, signal) => {
       logger.warn(`[Cluster Master] Worker ${worker.process.pid} died (${signal || code}). Restarting...`);
       cluster.fork();
