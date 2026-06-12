@@ -565,6 +565,10 @@ async function createIndexes(pool: Pool) {
     'CREATE INDEX IF NOT EXISTS idx_wallet_transactions_wallet ON wallet_transactions(wallet_id)',
   ];
   for (const idx of indexes) {
-    await pool.query(idx);
+    try {
+      await pool.query(idx);
+    } catch (e: any) {
+      console.warn(`[Migration] Index skipped (table may not exist): ${e.message}`);
+    }
   }
 }
