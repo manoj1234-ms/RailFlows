@@ -222,15 +222,27 @@ async function startServer() {
     await runMigrations(pool);
     logger.info('Database migrations complete.');
 
-    await pool.query('DELETE FROM queue_tokens');
-    logger.info('Cleared stale queue tokens.');
+    try {
+      await pool.query('DELETE FROM queue_tokens');
+      logger.info('Cleared stale queue tokens.');
+    } catch (e: any) {
+      logger.warn({ msg: 'Could not clear queue_tokens (table may not exist yet)', error: e.message });
+    }
 
-    await pool.query('ALTER TABLE queue_tokens ALTER COLUMN booking_window_expires_at TYPE TIMESTAMPTZ');
-    await pool.query('ALTER TABLE queue_tokens ALTER COLUMN created_at TYPE TIMESTAMPTZ');
-    logger.info('Migrated queue_tokens timestamps to TIMESTAMPTZ.');
+    try {
+      await pool.query('ALTER TABLE queue_tokens ALTER COLUMN booking_window_expires_at TYPE TIMESTAMPTZ');
+      await pool.query('ALTER TABLE queue_tokens ALTER COLUMN created_at TYPE TIMESTAMPTZ');
+      logger.info('Migrated queue_tokens timestamps to TIMESTAMPTZ.');
+    } catch (e: any) {
+      logger.warn({ msg: 'queue_tokens TIMESTAMPTZ migration skipped (already applied or table missing)', error: e.message });
+    }
 
-    await pool.query('ALTER TABLE seats ALTER COLUMN lock_expires_at TYPE TIMESTAMPTZ');
-    logger.info('Migrated seats.lock_expires_at to TIMESTAMPTZ.');
+    try {
+      await pool.query('ALTER TABLE seats ALTER COLUMN lock_expires_at TYPE TIMESTAMPTZ');
+      logger.info('Migrated seats.lock_expires_at to TIMESTAMPTZ.');
+    } catch (e: any) {
+      logger.warn({ msg: 'seats TIMESTAMPTZ migration skipped (already applied or table missing)', error: e.message });
+    }
 
     await initDb();
 
