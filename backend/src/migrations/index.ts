@@ -515,6 +515,95 @@ register('017_aadhaar_consent', async (pool) => {
   `);
 });
 
+register('018_create_missing_tables', async (pool) => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id SERIAL PRIMARY KEY,
+      actor VARCHAR(255) NOT NULL,
+      action VARCHAR(100) NOT NULL,
+      ip VARCHAR(45) NOT NULL,
+      payload TEXT,
+      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallets (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      balance REAL NOT NULL DEFAULT 0.0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      id SERIAL PRIMARY KEY,
+      wallet_id INTEGER NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+      type VARCHAR(20) NOT NULL CHECK(type IN ('CREDIT','DEBIT')),
+      amount REAL NOT NULL,
+      description VARCHAR(500),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coupons (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) UNIQUE NOT NULL,
+      discount_percent INTEGER NOT NULL,
+      discount_max_amount REAL NOT NULL,
+      min_cart_value REAL NOT NULL,
+      usage_limit INTEGER NOT NULL,
+      used_count INTEGER NOT NULL DEFAULT 0,
+      expires_at TIMESTAMP,
+      status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','INACTIVE','EXPIRED'))
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS train_coaches (
+      id SERIAL PRIMARY KEY,
+      train_number VARCHAR(50) REFERENCES trains(train_number) ON DELETE CASCADE NOT NULL,
+      coach_class VARCHAR(50) NOT NULL,
+      coach_label VARCHAR(50) NOT NULL,
+      position_from_engine INTEGER NOT NULL,
+      total_seats INTEGER NOT NULL,
+      UNIQUE(train_number, coach_label)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS train_routes (
+      id SERIAL PRIMARY KEY,
+      train_number VARCHAR(50) REFERENCES trains(train_number) ON DELETE CASCADE NOT NULL,
+      station_code VARCHAR(10) REFERENCES stations(code) ON DELETE CASCADE NOT NULL,
+      stop_number INTEGER NOT NULL,
+      arrival_time VARCHAR(50),
+      departure_time VARCHAR(50),
+      distance_km REAL NOT NULL,
+      day_count INTEGER NOT NULL DEFAULT 1,
+      platform VARCHAR(10),
+      UNIQUE(train_number, station_code)
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS live_train_status (
+      id SERIAL PRIMARY KEY,
+      train_number VARCHAR(50) REFERENCES trains(train_number) ON DELETE CASCADE NOT NULL,
+      current_station VARCHAR(10) REFERENCES stations(code),
+      status VARCHAR(50) NOT NULL,
+      delay_minutes INTEGER NOT NULL DEFAULT 0,
+      speed_kmh INTEGER NOT NULL DEFAULT 0,
+      next_station VARCHAR(10) REFERENCES stations(code),
+      expected_arrival TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+});
+
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
