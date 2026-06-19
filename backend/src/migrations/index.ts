@@ -619,6 +619,53 @@ register('019_saved_passengers_and_admin_mfa', async (pool) => {
   `);
 });
 
+register('020_waitlist_and_event_tables', async (pool) => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS booking_waitlist (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      train_number VARCHAR(50) NOT NULL,
+      from_station VARCHAR(10) NOT NULL,
+      to_station VARCHAR(10) NOT NULL,
+      coach_class VARCHAR(50) NOT NULL,
+      passengers INTEGER NOT NULL DEFAULT 1,
+      status VARCHAR(50) NOT NULL,
+      pnr VARCHAR(50) UNIQUE NOT NULL,
+      waitlist_number INTEGER NOT NULL,
+      promoted_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS event_bookings (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      pnr VARCHAR(50) UNIQUE NOT NULL,
+      status VARCHAR(50) NOT NULL DEFAULT 'CONFIRMED',
+      seats TEXT NOT NULL,
+      total_price REAL NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS event_seats (
+      id SERIAL PRIMARY KEY,
+      event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      section VARCHAR(50) NOT NULL,
+      row_label VARCHAR(50) NOT NULL,
+      seat_number INTEGER NOT NULL,
+      price REAL NOT NULL,
+      status VARCHAR(50) NOT NULL DEFAULT 'AVAILABLE',
+      locked_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      lock_expires_at TIMESTAMP,
+      booking_id INTEGER REFERENCES event_bookings(id) ON DELETE SET NULL
+    );
+  `);
+});
+
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
