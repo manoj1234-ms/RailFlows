@@ -133,21 +133,27 @@ router.get('/search', searchRateLimiter, validate(searchSchema), async (req: Req
             [train.train_number, train.train_number, train.train_number]
           );
 
-          // Seed seats for the new train
+          // Seed seats for the new train using a single bulk insert to reduce DB round-trips
           const coachConfigs = [
             { coach_class: '1A', coach_label: 'A1', seat_count: 9 },
             { coach_class: '3A', coach_label: 'B1', seat_count: 18 },
             { coach_class: 'SL', coach_label: 'S1', seat_count: 18 },
           ];
+          const placeholders: string[] = [];
+          const params: any[] = [];
           for (const config of coachConfigs) {
             for (let i = 1; i <= config.seat_count; i++) {
-              await db.run(
-                `INSERT INTO seats (train_number, coach_class, coach_label, seat_number, status)
-                 VALUES (?, ?, ?, ?, 'AVAILABLE')
-                 ON CONFLICT (train_number, coach_label, seat_number) DO NOTHING`,
-                [train.train_number, config.coach_class, config.coach_label, i]
-              );
+              placeholders.push('(?, ?, ?, ?, \'AVAILABLE\')');
+              params.push(train.train_number, config.coach_class, config.coach_label, i);
             }
+          }
+          if (placeholders.length > 0) {
+            await db.run(
+              `INSERT INTO seats (train_number, coach_class, coach_label, seat_number, status)
+               VALUES ${placeholders.join(', ')}
+               ON CONFLICT (train_number, coach_label, seat_number) DO NOTHING`,
+              params
+            );
           }
         }
       }
