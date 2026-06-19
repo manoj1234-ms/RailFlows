@@ -122,5 +122,9 @@ npm run typecheck      # Run TypeScript compilation checks
 
 ---
 
-> [!NOTE]
-> **Developer OTP Bypass:** If `TEST_OTP` is set in the environment variables (e.g. `TEST_OTP=123456`), you can use `123456` to successfully verify any phone or Aadhaar login on the frontend without waiting for Twilio SMS delivery.
+## 🧪 Developer Testing & OTP Bypass
+
+To facilitate easy testing of the signup, login, and Aadhaar verification flows without setting up Twilio or receiving carrier-blocked SMS:
+*   **OTP Bypass Code:** You can enter **`123456`** as the verification code for **any phone number or Aadhaar OTP prompt**.
+*   **Bypass System Design:** The backend verifies incoming codes against the `TEST_OTP` environment variable. Since `TEST_OTP=123456` is configured in our live Railway deployment, this bypass code succeeds instantly.
+*   **Disabling Bypass:** For live production releases, simply delete the `TEST_OTP` environment variable from the Railway dashboard, and the system will resume requiring real Twilio SMS OTP codes.
