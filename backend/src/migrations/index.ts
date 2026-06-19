@@ -666,6 +666,12 @@ register('020_waitlist_and_event_tables', async (pool) => {
   `);
 });
 
+register('021_live_train_status_last_updated', async (pool) => {
+  await pool.query(`
+    ALTER TABLE live_train_status ADD COLUMN IF NOT EXISTS last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+  `);
+});
+
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
