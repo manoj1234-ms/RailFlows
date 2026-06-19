@@ -89,22 +89,33 @@ export class RailwayApiService {
    * Fetch trains between stations.
    * Falls back to local database query if external API fails or is not configured.
    */
-  static async getTrainsBetweenStations(fromCode: string, toCode: string): Promise<any[]> {
+  static async getTrainsBetweenStations(fromCode: string, toCode: string, dateOfJourney?: string): Promise<any[]> {
     const cleanFrom = fromCode.toUpperCase().trim();
     const cleanTo = toCode.toUpperCase().trim();
-    const cacheKey = `ext_between:${cleanFrom}:${cleanTo}`;
+    
+    // Default to today's date if dateOfJourney is not supplied
+    let targetDate = dateOfJourney;
+    if (!targetDate) {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      targetDate = `${yyyy}-${mm}-${dd}`;
+    }
+
+    const cacheKey = `ext_between:${cleanFrom}:${cleanTo}:${targetDate}`;
 
     // 1. Check Cache
     const cached = await cache.get<any[]>(cacheKey);
     if (cached) {
-      logger.debug(`[Railway API] Cache hit for trains between ${cleanFrom} and ${cleanTo}`);
+      logger.debug(`[Railway API] Cache hit for trains between ${cleanFrom} and ${cleanTo} on ${targetDate}`);
       return cached;
     }
 
     // 2. Attempt External RapidAPI search
     // Using standard endpoint format: /api/v3/trainBetweenStations
     const host = process.env.RAPIDAPI_HOST || 'irctc1.p.rapidapi.com';
-    const extUrl = `https://${host}/api/v3/trainBetweenStations?fromStationCode=${cleanFrom}&toStationCode=${cleanTo}`;
+    const extUrl = `https://${host}/api/v3/trainBetweenStations?fromStationCode=${cleanFrom}&toStationCode=${cleanTo}&dateOfJourney=${targetDate}`;
     
     const extRes = await this.makeRequest<any>(extUrl);
     if (extRes && extRes.status && extRes.data) {

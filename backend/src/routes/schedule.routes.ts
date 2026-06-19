@@ -26,6 +26,8 @@ const betweenStationsSchema = {
   query: z.object({
     from: z.string().min(2),
     to: z.string().min(2),
+    date: z.string().optional(),
+    dateOfJourney: z.string().optional(),
   }),
 };
 
@@ -200,9 +202,10 @@ router.get('/fare/enquiry', validate(fareEnquirySchema), async (req: Request, re
 router.get('/between/stations', validate(betweenStationsSchema), async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const from = (req.query.from as string).toUpperCase();
   const to = (req.query.to as string).toUpperCase();
+  const dateOfJourney = (req.query.dateOfJourney || req.query.date) as string | undefined;
 
   try {
-    const trains = await RailwayApiService.getTrainsBetweenStations(from, to);
+    const trains = await RailwayApiService.getTrainsBetweenStations(from, to, dateOfJourney);
     res.status(200).json({ status: 'success', data: trains, source: 'railway-api' });
   } catch (error) {
     next(error);
