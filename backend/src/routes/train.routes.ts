@@ -5,7 +5,7 @@ import { validate } from '../middleware/validate';
 import { searchRateLimiter } from '../middleware/rateLimiter';
 import { SeatLockService } from '../services/lock.service';
 import { cache, CACHE_TTL } from '../services/cache.service';
-
+import { RailwayApiService } from '../services/railway-api.service';
 
 const router = Router();
 
@@ -62,74 +62,134 @@ router.get('/search', searchRateLimiter, validate(searchSchema), async (req: Req
   const db = await getDb();
 
   try {
-    // Look up station codes/names for better matching
-    const allStations = await db.all('SELECT code, name, city FROM stations');
-    const resolveStation = (query: string): string[] => {
-      const q = query.toLowerCase();
-      const matches = allStations.filter(s =>
-        s.code.toLowerCase() === q ||
-        s.name.toLowerCase().includes(q) ||
-        s.city.toLowerCase().includes(q)
+    // 1. Resolve inputs to station codes
+    const getStationCode = async (query: string): Promise<string> => {
+      const q = query.trim().toUpperCase();
+      if (/^[A-Z]{3,5}$/.test(q)) {
+        return q;
+      }
+      const parenMatch = q.match(/\(([^)]+)\)/);
+      if (parenMatch && parenMatch[1]) {
+        const code = parenMatch[1].trim().toUpperCase();
+        if (/^[A-Z]{3,5}$/.test(code)) return code;
+      }
+      // Query local database for code
+      const matched = await db.get(
+        'SELECT code FROM stations WHERE code = ? OR name ILIKE ? OR city ILIKE ? LIMIT 1',
+        [q, `%${q}%`, `%${q}%`]
       );
-      // Return matched city/name values
-      return [...new Set(matches.map(s => s.city || s.name))];
+      return matched ? matched.code : q;
     };
 
-    const fromNames = resolveStation(from);
-    const toNames = resolveStation(to);
+    const fromCode = await getStationCode(from);
+    const toCode = await getStationCode(to);
 
-    const allTrains = await db.all('SELECT * FROM trains');
-    
-    // Fuzzy matching for station typos
-    const matches = allTrains.filter(t => {
-      const fromScore = Math.max(
-        calculateStationMatchScore(from, t.from_station),
-        calculateStationMatchScore(from, t.train_number),
-        ...fromNames.map(n => calculateStationMatchScore(n, t.from_station))
-      );
-      const toScore = Math.max(
-        calculateStationMatchScore(to, t.to_station),
-        calculateStationMatchScore(to, t.train_number),
-        ...toNames.map(n => calculateStationMatchScore(n, t.to_station))
-      );
-      
-      // Threshold for match: substring matched or similarity > 50%
-      return fromScore > 50 && toScore > 50;
-    });
+    // 2. Fetch trains from live API or fallback
+    const liveTrains = await RailwayApiService.getTrainsBetweenStations(fromCode, toCode, date);
 
-    // Populate seat availability details for each matching train
+    // 3. For any new trains/stations returned by live API, dynamically sync them to local database
+    if (liveTrains && liveTrains.length > 0) {
+      // Make sure the stations exist in local DB (to satisfy Foreign Key constraints in bookings/routes)
+      await db.run(
+        `INSERT INTO stations (code, name, city, state, zone, latitude, longitude)
+         VALUES (?, ?, ?, 'Unknown', 'Unknown', 0, 0)
+         ON CONFLICT (code) DO NOTHING`,
+        [fromCode, from, from]
+      );
+      await db.run(
+        `INSERT INTO stations (code, name, city, state, zone, latitude, longitude)
+         VALUES (?, ?, ?, 'Unknown', 'Unknown', 0, 0)
+         ON CONFLICT (code) DO NOTHING`,
+        [toCode, to, to]
+      );
+
+      for (const train of liveTrains) {
+        // Check if train exists
+        let dbTrain = await db.get('SELECT * FROM trains WHERE train_number = ?', [train.train_number]);
+        if (!dbTrain) {
+          // Sync train to DB
+          await db.run(
+            `INSERT INTO trains (train_number, name, from_station, to_station, departure_time, arrival_time, base_fare)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              train.train_number,
+              train.name,
+              train.from_station || fromCode,
+              train.to_station || toCode,
+              train.departure_time,
+              train.arrival_time,
+              train.base_fare || 500.0
+            ]
+          );
+
+          // Sync default coaches
+          await db.run(
+            `INSERT INTO train_coaches (train_number, coach_class, coach_label, position_from_engine, total_seats)
+             VALUES 
+               (?, '1A', 'A1', 1, 9),
+               (?, '3A', 'B1', 2, 18),
+               (?, 'SL', 'S1', 3, 18)
+             ON CONFLICT (train_number, coach_label) DO NOTHING`,
+            [train.train_number, train.train_number, train.train_number]
+          );
+
+          // Seed seats for the new train
+          const coachConfigs = [
+            { coach_class: '1A', coach_label: 'A1', seat_count: 9 },
+            { coach_class: '3A', coach_label: 'B1', seat_count: 18 },
+            { coach_class: 'SL', coach_label: 'S1', seat_count: 18 },
+          ];
+          for (const config of coachConfigs) {
+            for (let i = 1; i <= config.seat_count; i++) {
+              await db.run(
+                `INSERT INTO seats (train_number, coach_class, coach_label, seat_number, status)
+                 VALUES (?, ?, ?, ?, 'AVAILABLE')
+                 ON CONFLICT (train_number, coach_label, seat_number) DO NOTHING`,
+                [train.train_number, config.coach_class, config.coach_label, i]
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // 4. Map search results (getting available seats dynamically from synced tables)
     const results = [];
-    for (const train of matches) {
-      const seats = await db.all(
-        'SELECT status, lock_expires_at FROM seats WHERE train_number = ?',
-        [train.train_number]
-      );
-      
-      const now = new Date().toISOString();
-      const available = seats.filter(
-        s => s.status === 'AVAILABLE' || (s.status === 'LOCKED' && datetimeExpired(s.lock_expires_at, now))
-      ).length;
+    const now = new Date().toISOString();
+    
+    // We filter from local DB matching search results so we return full detail rows with DB ids
+    for (const train of liveTrains) {
+      const dbTrain = await db.get('SELECT * FROM trains WHERE train_number = ?', [train.train_number]);
+      if (dbTrain) {
+        const seats = await db.all(
+          'SELECT status, lock_expires_at FROM seats WHERE train_number = ?',
+          [dbTrain.train_number]
+        );
+        const available = seats.filter(
+          s => s.status === 'AVAILABLE' || (s.status === 'LOCKED' && datetimeExpired(s.lock_expires_at, now))
+        ).length;
 
-      const estFare = train.base_fare;
-      results.push({
-        id: train.id,
-        trainNumber: train.train_number,
-        name: train.name,
-        fromStation: train.from_station,
-        toStation: train.to_station,
-        departureTime: train.departure_time,
-        arrivalTime: train.arrival_time,
-        baseFare: train.base_fare,
-        availableSeatsCount: available,
-        totalSeatsCount: seats.length,
-        fareBreakup: {
-          baseFare: estFare,
-          reservationFee: Math.round(estFare * 0.05),
-          superfastCharge: 0,
-          convenienceFee: Math.round(estFare * 0.03) + 5,
-          totalWithCharges: Math.round(estFare * 1.08) + 5,
-        },
-      });
+        const estFare = dbTrain.base_fare;
+        results.push({
+          id: dbTrain.id,
+          trainNumber: dbTrain.train_number,
+          name: dbTrain.name,
+          fromStation: dbTrain.from_station,
+          toStation: dbTrain.to_station,
+          departureTime: dbTrain.departure_time,
+          arrivalTime: dbTrain.arrival_time,
+          baseFare: dbTrain.base_fare,
+          availableSeatsCount: available,
+          totalSeatsCount: seats.length,
+          fareBreakup: {
+            baseFare: estFare,
+            reservationFee: Math.round(estFare * 0.05),
+            superfastCharge: 0,
+            convenienceFee: Math.round(estFare * 0.03) + 5,
+            totalWithCharges: Math.round(estFare * 1.08) + 5,
+          },
+        });
+      }
     }
 
     await cache.set(cacheKey, results, CACHE_TTL.TRAIN_SEARCH);
@@ -137,7 +197,7 @@ router.get('/search', searchRateLimiter, validate(searchSchema), async (req: Req
     res.status(200).json({
       status: 'success',
       data: results,
-      source: 'database',
+      source: 'railway-api',
     });
   } catch (error) {
     next(error);
