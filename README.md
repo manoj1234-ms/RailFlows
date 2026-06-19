@@ -7,9 +7,6 @@ RailFlow is a production-grade, state-of-the-art, high-concurrency Indian Railwa
 ## 🔗 Live Deployments
 
 *   **Frontend Web App (Vercel):** [https://rail-flows-gv29t9pyt-manojs-projects-8b8ebc49.vercel.app/](https://rail-flows-gv29t9pyt-manojs-projects-8b8ebc49.vercel.app/)
-*   **Backend Live API (Railway):** [https://railflows-production.up.railway.app/](https://railflows-production.up.railway.app/)
-*   **Interactive Swagger Documentation:** [https://railflows-production.up.railway.app/api/docs](https://railflows-production.up.railway.app/api/docs)
-*   **Prometheus Metrics Endpoint:** [https://railflows-production.up.railway.app/metrics](https://railflows-production.up.railway.app/metrics)
 
 ---
 
