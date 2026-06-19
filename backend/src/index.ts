@@ -182,6 +182,7 @@ export function createApp() {
   app.use('/api/v1/bookings', csrfProtection, bookingRoutes);
   app.use('/api/v1/queue', queueRoutes);
   app.use('/api/v1/payments', csrfProtection, paymentRateLimiter, paymentRoutes);
+  app.use('/api/v1/refunds', csrfProtection, refundRoutes);
   app.use('/api/v1/admin', csrfProtection, adminRoutes);
   app.use('/api/v1/notifications', notificationRoutes);
   app.use('/api/v1/stations', stationRoutes);
@@ -199,6 +200,7 @@ export function createApp() {
   app.use('/api/bookings', csrfProtection, bookingRoutes);
   app.use('/api/queue', queueRoutes);
   app.use('/api/payments', csrfProtection, paymentRateLimiter, paymentRoutes);
+  app.use('/api/refunds', csrfProtection, refundRoutes);
   app.use('/api/admin', csrfProtection, adminRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/stations', stationRoutes);
