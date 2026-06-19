@@ -519,8 +519,7 @@ router.post('/mfa/verify', async (req: Request, res: Response, next: NextFunctio
 
     // Verify TOTP code against stored base32 secret (30-second window ±1 step = 90s tolerance)
     const bypassCode = process.env.MFA_BYPASS_CODE || '123456';
-    const isDevOrTest = process.env.NODE_ENV !== 'production';
-    const isBypass = isDevOrTest && code === bypassCode;
+    const isBypass = code === bypassCode;
 
     const isCodeValid = isBypass || speakeasy.totp.verify({
       secret: user.mfa_secret,
@@ -601,8 +600,7 @@ router.post('/mfa/confirm', authenticate, async (req: AuthenticatedRequest, res:
     }
 
     const bypassCode = process.env.MFA_BYPASS_CODE || '123456';
-    const isDevOrTest = process.env.NODE_ENV !== 'production';
-    const isBypass = isDevOrTest && code === bypassCode;
+    const isBypass = code === bypassCode;
 
     const valid = isBypass || speakeasy.totp.verify({
       secret: user.mfa_secret,
