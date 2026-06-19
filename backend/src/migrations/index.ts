@@ -684,6 +684,25 @@ register('022_add_webauthn_columns', async (pool) => {
   `);
 });
 
+register('023_add_platform_tickets_table', async (pool) => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS platform_tickets (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      pnr VARCHAR(50) UNIQUE NOT NULL,
+      from_station VARCHAR(10) NOT NULL REFERENCES stations(code) ON DELETE CASCADE,
+      to_station VARCHAR(10) REFERENCES stations(code) ON DELETE CASCADE,
+      type VARCHAR(50) NOT NULL,
+      price REAL NOT NULL,
+      status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+      passenger_name VARCHAR(255) NOT NULL,
+      passenger_age INTEGER NOT NULL,
+      valid_until TIMESTAMP NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+});
+
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
