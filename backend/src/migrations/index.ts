@@ -703,51 +703,6 @@ register('023_add_platform_tickets_table', async (pool) => {
   `);
 });
 
-register('024_seed_mathura_train', async (pool) => {
-  // 1. Insert Stations
-  await pool.query(`
-    INSERT INTO stations (code, name, city, state, zone, latitude, longitude)
-    VALUES 
-      ('MTJ', 'Mathura Junction', 'Mathura', 'Uttar Pradesh', 'North Central Railway', 27.4924, 77.6737),
-      ('NDLS', 'New Delhi Railway Station', 'Delhi', 'Delhi', 'Northern Railway', 28.6417, 77.2200)
-    ON CONFLICT (code) DO NOTHING;
-  `);
-
-  // 2. Insert Train
-  await pool.query(`
-    INSERT INTO trains (train_number, name, from_station, to_station, departure_time, arrival_time, base_fare)
-    VALUES ('14001', 'Mathura NDLS Express', 'MTJ', 'NDLS', '08:00', '10:30', 150.0)
-    ON CONFLICT (train_number) DO NOTHING;
-  `);
-
-  // 3. Insert Coaches
-  await pool.query(`
-    INSERT INTO train_coaches (train_number, coach_class, coach_label, position_from_engine, total_seats)
-    VALUES 
-      ('14001', '1A', 'A1', 1, 9),
-      ('14001', '3A', 'B1', 2, 18),
-      ('14001', 'SL', 'S1', 3, 18)
-    ON CONFLICT (train_number, coach_label) DO NOTHING;
-  `);
-
-  // 4. Insert Seats
-  const coachConfigs = [
-    { coach_class: '1A', coach_label: 'A1', seat_count: 9 },
-    { coach_class: '3A', coach_label: 'B1', seat_count: 18 },
-    { coach_class: 'SL', coach_label: 'S1', seat_count: 18 },
-  ];
-
-  for (const config of coachConfigs) {
-    for (let i = 1; i <= config.seat_count; i++) {
-      await pool.query(`
-        INSERT INTO seats (train_number, coach_class, coach_label, seat_number, status)
-        VALUES ('14001', $1, $2, $3, 'AVAILABLE')
-        ON CONFLICT (train_number, coach_label, seat_number) DO NOTHING;
-      `, [config.coach_class, config.coach_label, i]);
-    }
-  }
-});
-
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
