@@ -20,6 +20,7 @@ import {
 import { NotificationService } from '../services/notification.service';
 import { getRedis, isRedisReady } from '../config/redis';
 import { SmsService } from '../services/sms.service';
+import logger from '../utils/logger';
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -29,6 +30,9 @@ const router = Router();
 async function generateAndSendOtp(key: string, phone: string): Promise<string> {
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   
+  // Log OTP to server logs for developer visibility
+  logger.info(`[OTP Debug Log] Generated OTP for ${phone}: ${otp}`);
+
   if (isRedisReady()) {
     const redis = getRedis();
     await redis.setex(key, 300, otp); // 5 mins TTL
