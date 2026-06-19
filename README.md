@@ -10,6 +10,16 @@ RailFlow is a production-grade, state-of-the-art, high-concurrency Indian Railwa
 
 ---
 
+## 🛠️ Technology Stack & Core Skills
+
+*   **Frontend Development:** React.js, TypeScript, TailwindCSS, Vite, Framer Motion, HTML5, Vanilla CSS
+*   **Backend Development:** Node.js, Express.js, TypeScript, RESTful API Design, Swagger/OpenAPI, MVC Architecture
+*   **Databases & Caching:** PostgreSQL (Range Partitioning, BRIN Indexes), SQLite, Redis (Distributed Lock / Redlock, Memory Policies), BullMQ
+*   **Testing & QA:** Jest (Unit Testing, Integration Testing, Test Coverage), Pytest (API Integration Testing), Test-Driven Development (TDD), Supertest
+*   **DevOps & Messaging:** Docker, Docker Compose, Apache Kafka Event Streaming, GitHub Actions CI/CD, Prometheus Monitoring, Railway, Vercel
+
+---
+
 ## 🛠️ System Design & Architecture
 
 ```mermaid
@@ -112,12 +122,19 @@ npm install
 npm run dev
 ```
 
-### 3. Running Test Suites
+### 3. Testing Methodologies (TDD, Unit, and Integration Testing)
+
+We follow strict Test-Driven Development (TDD) patterns to validate business logic:
+*   **Unit Testing (Jest):** Verifying isolated helper logic, Saga orchestrator rules, and JWT auth generation.
+*   **Integration Testing (Jest + Supertest):** Running integration checks on Express routes, cookies, and database state transitions.
+*   **API Testing (Pytest):** End-to-end API integration tests verifying all 73+ endpoints against active PostgreSQL and Redis databases.
+
+Run the test suites locally using:
 ```bash
 cd backend
-npm test               # Run all test suites
-npm run test:coverage  # Test coverage report
-npm run typecheck      # Run TypeScript compilation checks
+npm test               # Run Jest unit & integration tests
+npm run test:coverage  # Generate code test coverage report
+npm run typecheck      # Type validation check
 ```
 
 ---
