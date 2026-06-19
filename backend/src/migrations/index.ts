@@ -672,6 +672,18 @@ register('021_live_train_status_last_updated', async (pool) => {
   `);
 });
 
+register('022_add_webauthn_columns', async (pool) => {
+  await pool.query(`
+    ALTER TABLE users 
+    ADD COLUMN IF NOT EXISTS webauthn_challenge VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS webauthn_user_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS webauthn_credential_id VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS webauthn_public_key TEXT,
+    ADD COLUMN IF NOT EXISTS webauthn_counter INTEGER DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS webauthn_enabled INTEGER DEFAULT 0;
+  `);
+});
+
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
