@@ -53,6 +53,13 @@ async function generateAndSendOtp(key: string, phone: string): Promise<string> {
 
 // Verifies and consumes the OTP
 async function verifyAndConsumeOtp(key: string, code: string): Promise<boolean> {
+  // Support Test OTP bypass (e.g. if code matches TEST_OTP environment variable)
+  const testOtp = process.env.TEST_OTP;
+  if (testOtp && code === testOtp) {
+    logger.info(`[OTP Bypass] Successfully verified via test OTP bypass.`);
+    return true;
+  }
+
   if (isRedisReady()) {
     const redis = getRedis();
     const stored = await redis.get(key);
